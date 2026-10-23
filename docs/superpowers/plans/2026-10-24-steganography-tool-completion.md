@@ -73,6 +73,7 @@ git commit -m "merge: integrate modular steganography implementation"
 **Files:**
 - Modify: `stego/core.py`
 - Modify: `stego/image.py`
+- Modify: `stego/__init__.py` (remove exports for the retired GIF-frame API)
 - Modify: `app.py` (image and video-frame output validation only)
 - Test: `tests/test_core.py`
 - Test: `tests/test_image.py`
@@ -85,7 +86,7 @@ git commit -m "merge: integrate modular steganography implementation"
 
 - [ ] **Step 1: Add failing core tests**
 
-Test encrypted version 2 round trips, version 1 fixture decoding, tampering of each serialized header field, and equality between `estimate_stego_payload_size(...)` and `len(build_stego_payload(...)[0])` for encrypted, compressed, and metadata-bearing payloads.
+Test encrypted version 2 round trips, version 1 fixture decoding, tampering of each serialized header field, timezone-aware expired and unexpired UTC metadata, and equality between `estimate_stego_payload_size(...)` and `len(build_stego_payload(...)[0])` for encrypted, compressed, and metadata-bearing payloads.
 
 - [ ] **Step 2: Run the core tests to verify failure**
 
@@ -120,7 +121,7 @@ Expected: all focused tests pass, including legacy decode and wrong-password rej
 - [ ] **Step 8: Commit Task 2**
 
 ```bash
-git add stego/core.py stego/image.py app.py tests/test_core.py tests/test_image.py tests/test_video_frame.py
+git add stego/core.py stego/image.py stego/__init__.py app.py tests/test_core.py tests/test_image.py tests/test_video_frame.py
 git commit -m "fix: authenticate headers and preserve lossless payloads"
 ```
 
