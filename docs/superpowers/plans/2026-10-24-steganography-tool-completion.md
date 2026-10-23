@@ -75,6 +75,7 @@ git commit -m "merge: integrate modular steganography implementation"
 - Modify: `stego/image.py`
 - Modify: `stego/__init__.py` (remove exports for the retired GIF-frame API)
 - Modify: `app.py` (image and video-frame output validation only)
+- Modify: `gui/main.py` (remove only GIF-frame actions and their callbacks)
 - Test: `tests/test_core.py`
 - Test: `tests/test_image.py`
 - Create: `tests/test_video_frame.py`
