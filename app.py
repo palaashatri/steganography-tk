@@ -6,45 +6,121 @@ CLI wrapper around the stego package.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, TextIO
 
 # Import all steganography operations from stego package
 from stego import (
     # Core operations
-    load_image, read_payload, build_stego_payload, parse_stego_payload,
+    FLAG_LSB_MATCH,
+    FLAG_PRNG,
+    STREAMING_PRNG_VERSION,
+    VERSION,
+    load_image,
+    read_payload,
+    build_stego_payload,
+    parse_stego_payload,
     # Image operations
-    embed_stego_data_in_image, extract_stego_data_from_image,
-    embed_data_in_video_frame, extract_data_from_video_frame,
+    embed_stego_data_in_image,
+    extract_stego_data_from_image,
+    embed_data_in_video_frame,
+    extract_data_from_video_frame,
     # Audio operations
-    embed_data_in_audio, extract_data_from_audio,
+    embed_data_in_audio,
+    extract_data_from_audio,
     # Video operations
-    embed_data_in_video, extract_data_from_video,
+    embed_data_in_video,
+    extract_data_from_video,
     # PDF operations
-    embed_data_in_pdf, extract_data_from_pdf,
+    embed_data_in_pdf,
+    extract_data_from_pdf,
     # Utilities
-    generate_qr_code, create_portable_decoder, create_windows_file_association,
+    generate_qr_code,
+    create_portable_decoder,
+    create_windows_file_association,
+    ensure_output_differs_from_input,
+    ensure_output_differs_from_payloads,
 )
+from stego.image import max_image_payload_bytes
+
+
+def add_credentials_stdin_option(parser: argparse.ArgumentParser) -> None:
+    """Add the stdin credential transport used by the GUI and CLI."""
+    parser.add_argument(
+        "--credentials-stdin",
+        action="store_true",
+        help="Read password and PRNG key from a JSON object on stdin",
+    )
+
+
+def apply_stdin_credentials(
+    args: argparse.Namespace, stream: TextIO | None = None
+) -> None:
+    """Read GUI credentials from one JSON object on stdin when requested."""
+    if not getattr(args, "credentials_stdin", False):
+        return
+
+    credentials = json.load(stream or sys.stdin)
+    if not isinstance(credentials, dict):
+        raise ValueError("Credentials on stdin must be a JSON object")
+    unknown = credentials.keys() - {"password", "prng_key"}
+    if unknown:
+        raise ValueError("Credentials on stdin contain unsupported fields")
+
+    for name, value in credentials.items():
+        if not isinstance(value, str):
+            raise ValueError(f"Credential {name!r} must be a string")
+        if not hasattr(args, name):
+            raise ValueError(f"This command does not accept {name!r} credentials")
+        if getattr(args, name) is not None:
+            raise ValueError(f"Do not pass {name!r} both as an option and on stdin")
+        setattr(args, name, value)
 
 
 def encode_image(args: argparse.Namespace) -> None:
     """Encode data into image using LSB steganography."""
     if Path(args.out).suffix.lower() != ".png":
         raise ValueError("Image stego output must use the PNG format")
+    ensure_output_differs_from_payloads(args.out, args.in_file)
     image = load_image(args.image)
-    payload = read_payload(args.message, args.in_file)
-    flags = 0
-    stego_data, _, _, _ = build_stego_payload(
-        payload, flags, args.password, args.compress, args.comment, args.expires
+    payload_limit = max_image_payload_bytes(
+        image,
+        password=args.password,
+        compress=args.compress,
+        comment=args.comment,
+        expires=args.expires,
     )
-    stego_image = embed_stego_data_in_image(image, stego_data, args.method, args.prng_key)
+    payload = read_payload(args.message, args.in_file, max_bytes=payload_limit)
+    flags = 0
+    version = VERSION
+    if args.method in {"lsb-prng", "lsb-match-prng"}:
+        flags |= FLAG_PRNG
+        if args.method == "lsb-match-prng":
+            flags |= FLAG_LSB_MATCH
+        version = STREAMING_PRNG_VERSION
+    stego_data, _, _, _ = build_stego_payload(
+        payload,
+        flags,
+        args.password,
+        args.compress,
+        args.comment,
+        args.expires,
+        version=version,
+    )
+    stego_image = embed_stego_data_in_image(
+        image, stego_data, args.method, args.prng_key
+    )
     stego_image.save(args.out, format="PNG")
     logging.info("Wrote stego image to %s", args.out)
 
 
 def decode_image(args: argparse.Namespace) -> None:
     """Decode data from image using LSB steganography."""
+    if args.out:
+        ensure_output_differs_from_input(args.image, args.out, "Image")
     image = load_image(args.image)
     stego_data = extract_stego_data_from_image(image, args.method, args.prng_key)
     _, plaintext, _ = parse_stego_payload(stego_data, args.password)
@@ -63,14 +139,15 @@ def decode_image(args: argparse.Namespace) -> None:
 def encode_audio(args: argparse.Namespace) -> None:
     """Encode data into audio file."""
     embed_data_in_audio(
-        args.audio, args.out,
+        args.audio,
+        args.out,
         password=args.password,
-        message=getattr(args, 'message', None),
-        in_file=getattr(args, 'in_file', None),
-        image_path=getattr(args, 'image', None),
-        compress=getattr(args, 'compress', False),
-        comment=getattr(args, 'comment', None),
-        expires=getattr(args, 'expires', None),
+        message=getattr(args, "message", None),
+        in_file=getattr(args, "in_file", None),
+        image_path=getattr(args, "image", None),
+        compress=getattr(args, "compress", False),
+        comment=getattr(args, "comment", None),
+        expires=getattr(args, "expires", None),
     )
 
 
@@ -82,15 +159,16 @@ def decode_audio(args: argparse.Namespace) -> None:
 def encode_video(args: argparse.Namespace) -> None:
     """Encode data into video file."""
     embed_data_in_video(
-        args.video, args.out,
+        args.video,
+        args.out,
         password=args.password,
-        message=getattr(args, 'message', None),
-        in_file=getattr(args, 'in_file', None),
-        image_path=getattr(args, 'image', None),
-        mp3_path=getattr(args, 'mp3', None),
-        compress=getattr(args, 'compress', False),
-        comment=getattr(args, 'comment', None),
-        expires=getattr(args, 'expires', None),
+        message=getattr(args, "message", None),
+        in_file=getattr(args, "in_file", None),
+        image_path=getattr(args, "image", None),
+        mp3_path=getattr(args, "mp3", None),
+        compress=getattr(args, "compress", False),
+        comment=getattr(args, "comment", None),
+        expires=getattr(args, "expires", None),
     )
 
 
@@ -102,13 +180,14 @@ def decode_video(args: argparse.Namespace) -> None:
 def encode_pdf(args: argparse.Namespace) -> None:
     """Encode data into PDF file."""
     embed_data_in_pdf(
-        args.pdf, args.out,
+        args.pdf,
+        args.out,
         password=args.password,
-        message=getattr(args, 'message', None),
-        in_file=getattr(args, 'in_file', None),
-        compress=getattr(args, 'compress', False),
-        comment=getattr(args, 'comment', None),
-        expires=getattr(args, 'expires', None),
+        message=getattr(args, "message", None),
+        in_file=getattr(args, "in_file", None),
+        compress=getattr(args, "compress", False),
+        comment=getattr(args, "comment", None),
+        expires=getattr(args, "expires", None),
     )
 
 
@@ -122,25 +201,29 @@ def encode_video_frame(args: argparse.Namespace) -> None:
     if Path(args.out).suffix.lower() != ".mkv":
         raise ValueError("Video-frame stego output must use the MKV format")
     embed_data_in_video_frame(
-        args.video, args.out, args.frame,
-        message=getattr(args, 'message', None),
-        in_file=getattr(args, 'in_file', None),
+        args.video,
+        args.out,
+        args.frame,
+        message=getattr(args, "message", None),
+        in_file=getattr(args, "in_file", None),
         password=args.password,
-        method=getattr(args, 'method', 'lsb'),
-        prng_key=getattr(args, 'prng_key', None),
-        compress=getattr(args, 'compress', False),
-        comment=getattr(args, 'comment', None),
-        expires=getattr(args, 'expires', None),
+        method=getattr(args, "method", "lsb"),
+        prng_key=getattr(args, "prng_key", None),
+        compress=getattr(args, "compress", False),
+        comment=getattr(args, "comment", None),
+        expires=getattr(args, "expires", None),
     )
 
 
 def decode_video_frame(args: argparse.Namespace) -> None:
     """Decode data from video frame."""
+    ensure_output_differs_from_input(args.video, args.out, "Video")
     plaintext = extract_data_from_video_frame(
-        args.video, args.frame,
+        args.video,
+        args.frame,
         password=args.password,
-        method=getattr(args, 'method', 'lsb'),
-        prng_key=getattr(args, 'prng_key', None),
+        method=getattr(args, "method", "lsb"),
+        prng_key=getattr(args, "prng_key", None),
     )
     with open(args.out, "wb") as f:
         f.write(plaintext)
@@ -158,10 +241,10 @@ def build_portable_decoder(args: argparse.Namespace) -> None:
     create_portable_decoder(
         args.stego,
         args.out,
-        getattr(args, 'method', None),
-        getattr(args, 'prng_key', None),
-        getattr(args, 'password', None),
-        getattr(args, 'frame', None),
+        getattr(args, "method", None),
+        getattr(args, "prng_key", None),
+        getattr(args, "password", None),
+        getattr(args, "frame", None),
     )
     logging.info("Created portable decoder: %s", args.out)
 
@@ -181,7 +264,9 @@ def build_parser() -> argparse.ArgumentParser:
             "commands store visible metadata and do not hide it"
         ),
     )
-    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -192,8 +277,11 @@ def build_parser() -> argparse.ArgumentParser:
     enc_img.add_argument("--message", help="Text message to hide")
     enc_img.add_argument("--in-file", help="File to hide")
     enc_img.add_argument("--password", help="Encryption password")
-    enc_img.add_argument("--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"])
+    enc_img.add_argument(
+        "--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"]
+    )
     enc_img.add_argument("--prng-key", help="PRNG key for lsb-prng methods")
+    add_credentials_stdin_option(enc_img)
     enc_img.add_argument("--compress", action="store_true", help="Compress payload")
     enc_img.add_argument("--comment", help="Metadata comment")
     enc_img.add_argument("--expires", help="Expiration date (ISO format)")
@@ -204,8 +292,11 @@ def build_parser() -> argparse.ArgumentParser:
     dec_img.add_argument("--image", required=True, help="Stego image path")
     dec_img.add_argument("--out", help="Output file path (prints to stdout if omitted)")
     dec_img.add_argument("--password", help="Decryption password")
-    dec_img.add_argument("--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"])
+    dec_img.add_argument(
+        "--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"]
+    )
     dec_img.add_argument("--prng-key", help="PRNG key")
+    add_credentials_stdin_option(dec_img)
     dec_img.set_defaults(func=decode_image)
 
     # Audio encode
@@ -214,15 +305,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Store data in visible audio metadata (not steganography; 1,000,000-byte encoded limit)",
         description=(
             "Store a payload in visible metadata tags, not steganography. Anyone inspecting "
-            "metadata can read the stored value. Encoded envelope limit: 1,000,000 bytes."
+            "metadata can see that a payload is stored; contents are readable unless "
+            "AES-GCM encryption was enabled with a password. Encoded envelope limit: "
+            "1,000,000 bytes."
         ),
     )
     enc_aud.add_argument("--audio", required=True, help="Input audio path")
     enc_aud.add_argument("--out", required=True, help="Output audio carrier path")
     enc_aud.add_argument("--message", help="Text message")
     enc_aud.add_argument("--in-file", help="File to hide")
-    enc_aud.add_argument("--image", help="Original image file bytes for MP3 or MP4-family metadata")
+    enc_aud.add_argument(
+        "--image", help="Original image file bytes for MP3 or MP4-family metadata"
+    )
     enc_aud.add_argument("--password", help="Encryption password")
+    add_credentials_stdin_option(enc_aud)
     enc_aud.add_argument("--compress", action="store_true")
     enc_aud.add_argument("--comment", help="Metadata comment")
     enc_aud.add_argument("--expires", help="Expiration date")
@@ -235,6 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     dec_aud.add_argument("--audio", required=True, help="Audio carrier path")
     dec_aud.add_argument("--out", required=True, help="Output path")
     dec_aud.add_argument("--password", help="Decryption password")
+    add_credentials_stdin_option(dec_aud)
     dec_aud.set_defaults(func=decode_audio)
 
     # Video encode
@@ -243,17 +340,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Store data in visible video metadata (not steganography; 1,000,000-byte encoded limit)",
         description=(
             "Store a payload in visible metadata tags/comments, not steganography. Anyone "
-            "inspecting metadata can read the stored value. Encoded envelope limit: "
-            "1,000,000 bytes."
+            "inspecting metadata can see that a payload is stored; contents are readable "
+            "unless AES-GCM encryption was enabled with a password. Encoded envelope "
+            "limit: 1,000,000 bytes."
         ),
     )
     enc_vid.add_argument("--video", required=True, help="Input video path")
     enc_vid.add_argument("--out", required=True, help="Output video carrier path")
     enc_vid.add_argument("--message", help="Text message")
     enc_vid.add_argument("--in-file", help="File to hide")
-    enc_vid.add_argument("--image", help="Original image file bytes for MP4-family metadata")
-    enc_vid.add_argument("--mp3", help="Original MP3 file bytes for MP4-family metadata")
+    enc_vid.add_argument(
+        "--image", help="Original image file bytes for MP4-family metadata"
+    )
+    enc_vid.add_argument(
+        "--mp3", help="Original MP3 file bytes for MP4-family metadata"
+    )
     enc_vid.add_argument("--password", help="Encryption password")
+    add_credentials_stdin_option(enc_vid)
     enc_vid.add_argument("--compress", action="store_true")
     enc_vid.add_argument("--comment", help="Metadata comment")
     enc_vid.add_argument("--expires", help="Expiration date")
@@ -266,6 +369,7 @@ def build_parser() -> argparse.ArgumentParser:
     dec_vid.add_argument("--video", required=True, help="Video carrier path")
     dec_vid.add_argument("--out", required=True, help="Output path")
     dec_vid.add_argument("--password", help="Decryption password")
+    add_credentials_stdin_option(dec_vid)
     dec_vid.set_defaults(func=decode_video)
 
     # PDF encode
@@ -274,8 +378,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Store data in visible PDF metadata (not steganography; 1,000,000-byte encoded limit)",
         description=(
             "Store a payload in visible metadata in PDF document properties, not steganography. Anyone "
-            "inspecting metadata can read the stored value. Encoded envelope limit: "
-            "1,000,000 bytes."
+            "inspecting metadata can see that a payload is stored; contents are readable "
+            "unless AES-GCM encryption was enabled with a password. Encoded envelope "
+            "limit: 1,000,000 bytes."
         ),
     )
     enc_pdf.add_argument("--pdf", required=True, help="Input PDF path")
@@ -283,6 +388,7 @@ def build_parser() -> argparse.ArgumentParser:
     enc_pdf.add_argument("--message", help="Text message")
     enc_pdf.add_argument("--in-file", help="File to hide")
     enc_pdf.add_argument("--password", help="Encryption password")
+    add_credentials_stdin_option(enc_pdf)
     enc_pdf.add_argument("--compress", action="store_true")
     enc_pdf.add_argument("--comment", help="Metadata comment")
     enc_pdf.add_argument("--expires", help="Expiration date")
@@ -295,31 +401,42 @@ def build_parser() -> argparse.ArgumentParser:
     dec_pdf.add_argument("--pdf", required=True, help="PDF carrier path")
     dec_pdf.add_argument("--out", required=True, help="Output path")
     dec_pdf.add_argument("--password", help="Decryption password")
+    add_credentials_stdin_option(dec_pdf)
     dec_pdf.set_defaults(func=decode_pdf)
 
     # Video frame encode
-    enc_vf = subparsers.add_parser("video-frame-encode", help="Encode data into video frame")
+    enc_vf = subparsers.add_parser(
+        "video-frame-encode", help="Encode data into video frame"
+    )
     enc_vf.add_argument("--video", required=True, help="Input video path")
     enc_vf.add_argument("--out", required=True, help="Output stego video path")
     enc_vf.add_argument("--frame", type=int, required=True, help="Frame index")
     enc_vf.add_argument("--message", help="Text message")
     enc_vf.add_argument("--in-file", help="File to hide")
     enc_vf.add_argument("--password", help="Encryption password")
-    enc_vf.add_argument("--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"])
+    enc_vf.add_argument(
+        "--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"]
+    )
     enc_vf.add_argument("--prng-key", help="PRNG key")
+    add_credentials_stdin_option(enc_vf)
     enc_vf.add_argument("--compress", action="store_true")
     enc_vf.add_argument("--comment", help="Metadata comment")
     enc_vf.add_argument("--expires", help="Expiration date")
     enc_vf.set_defaults(func=encode_video_frame)
 
     # Video frame decode
-    dec_vf = subparsers.add_parser("video-frame-decode", help="Decode data from video frame")
+    dec_vf = subparsers.add_parser(
+        "video-frame-decode", help="Decode data from video frame"
+    )
     dec_vf.add_argument("--video", required=True, help="Stego video path")
     dec_vf.add_argument("--frame", type=int, required=True, help="Frame index")
     dec_vf.add_argument("--out", required=True, help="Output path")
     dec_vf.add_argument("--password", help="Decryption password")
-    dec_vf.add_argument("--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"])
+    dec_vf.add_argument(
+        "--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"]
+    )
     dec_vf.add_argument("--prng-key", help="PRNG key")
+    add_credentials_stdin_option(dec_vf)
     dec_vf.set_defaults(func=decode_video_frame)
 
     # QR code
@@ -335,11 +452,14 @@ def build_parser() -> argparse.ArgumentParser:
     decoder.add_argument("--method", choices=["lsb", "lsb-prng", "lsb-match-prng"])
     decoder.add_argument("--prng-key")
     decoder.add_argument("--password")
+    add_credentials_stdin_option(decoder)
     decoder.add_argument("--frame", type=int, help="Video frame index")
     decoder.set_defaults(func=build_portable_decoder)
 
     # File association
-    assoc = subparsers.add_parser("file-assoc", help="Generate Windows file association")
+    assoc = subparsers.add_parser(
+        "file-assoc", help="Generate Windows file association"
+    )
     assoc.add_argument("--out", required=True, help="Output .reg file path")
     assoc.add_argument("--app-path", required=True, help="Path to app.py")
     assoc.add_argument("--python-path", required=True, help="Path to python executable")
@@ -353,9 +473,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    try:
+        apply_stdin_credentials(args)
+    except (ValueError, json.JSONDecodeError) as exc:
+        parser.error(str(exc))
+
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
-        format="%(levelname)s: %(message)s"
+        format="%(levelname)s: %(message)s",
     )
 
     args.func(args)

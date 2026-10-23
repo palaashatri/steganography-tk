@@ -1,7 +1,7 @@
 # Shared Python 3.14 environment for repeatable verification and Linux builds.
 FROM python:3.14-slim AS test-base
 
-ENV CI=""
+ENV CI="" REQUIRE_TK="1"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     tk \
     xvfb \
+    x11-utils \
     xauth \
     libxkbcommon-x11-0 \
     libxcb-icccm4 \
@@ -35,7 +36,7 @@ COPY . .
 
 FROM test-base AS test
 
-CMD ["xvfb-run", "-a", "pytest", "-v", "--cov=stego", "--cov=gui", "--cov=app", "--cov-report=xml", "--cov-report=term", "tests/"]
+CMD ["sh", "scripts/run-tests-xvfb.sh", "pytest", "-v", "--cov=stego", "--cov=gui", "--cov=app", "--cov-report=xml", "--cov-report=term", "tests/"]
 
 FROM test-base AS build
 

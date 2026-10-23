@@ -6,6 +6,9 @@ on:
 permissions:
   contents: read
 
+env:
+  REQUIRE_TK: "1"
+
 jobs:
   test:
     name: Test - ${{ matrix.os }} / Python ${{ matrix.python-version }}

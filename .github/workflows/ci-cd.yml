@@ -45,6 +45,17 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path @('dist/stego-cli.exe', 'dist/stego-gui.exe') -DestinationPath 'dist/steganography-windows.zip' -Force
 
+      - name: Smoke test Windows download
+        shell: pwsh
+        run: |
+          $smokeRoot = Join-Path $env:RUNNER_TEMP ('stego-smoke-' + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $smokeRoot | Out-Null
+          Expand-Archive -LiteralPath 'dist/steganography-windows.zip' -DestinationPath $smokeRoot
+          & (Join-Path $smokeRoot 'stego-cli.exe') --help
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen Windows CLI smoke test failed.' }
+          & (Join-Path $smokeRoot 'stego-gui.exe') --self-check
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen Windows GUI smoke test failed.' }
+
       - name: Attach Windows ZIP to release
         uses: softprops/action-gh-release@v2
         with:
@@ -85,6 +96,14 @@ jobs:
           ditto dist/stego-cli dist/steganography-macos/stego-cli
           ditto dist/stego-gui.app dist/steganography-macos/stego-gui.app
           ditto -c -k --sequesterRsrc --keepParent dist/steganography-macos dist/steganography-macos.zip
+
+      - name: Smoke test macOS download
+        run: |
+          smoke_dir="$(mktemp -d)"
+          trap 'rm -rf "$smoke_dir"' EXIT
+          unzip -q dist/steganography-macos.zip -d "$smoke_dir"
+          "$smoke_dir/steganography-macos/stego-cli" --help >/dev/null
+          "$smoke_dir/steganography-macos/stego-gui.app/Contents/MacOS/stego-gui" --self-check
 
       - name: Attach macOS ZIP to release
         uses: softprops/action-gh-release@v2
