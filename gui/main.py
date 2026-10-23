@@ -15,10 +15,11 @@ import sys
 import threading
 import time
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Iterator, Optional, Sequence
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import imageio.v2 as imageio
@@ -151,21 +152,45 @@ def load_encrypted_vault(path: str | Path, master_password: str) -> dict[str, st
     return payload
 
 
-def save_encrypted_vault(
-    path: str | Path, master_password: str, payload: dict[str, str]
-) -> None:
-    """Save a vault only after authenticating any existing file with its password."""
-    vault_path = Path(path)
-    original = vault_path.read_bytes() if vault_path.exists() else None
-    if original is not None:
-        # Authenticate before producing or writing replacement ciphertext.
-        load_encrypted_vault(vault_path, master_password)
-    if not all(
-        isinstance(name, str) and isinstance(value, str)
-        for name, value in payload.items()
-    ):
-        raise ValueError("Vault contents must map key names to string values")
+_VAULT_THREAD_LOCK = threading.RLock()
 
+
+@contextmanager
+def _lock_encrypted_vault(path: Path) -> Iterator[None]:
+    """Serialize vault updates across threads and application processes."""
+    lock_path = path.resolve(strict=False).with_name(f".{path.name}.lock")
+    with _VAULT_THREAD_LOCK, lock_path.open("a+b") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            return
+
+        import fcntl
+
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _write_encrypted_vault(
+    vault_path: Path,
+    master_password: str,
+    payload: dict[str, str],
+    original: bytes | None,
+) -> None:
     salt = os.urandom(DEFAULT_SALT_LEN)
     nonce = os.urandom(DEFAULT_NONCE_LEN)
     key = derive_key(master_password, salt)
@@ -179,7 +204,7 @@ def save_encrypted_vault(
     }
     serialized = json.dumps(data, indent=2).encode("utf-8")
     if original is None:
-        # Exclusive creation prevents a concurrently created vault from being clobbered.
+        # Exclusive creation prevents an uncoordinated writer from being clobbered.
         with vault_path.open("xb") as vault_file:
             vault_file.write(serialized)
         return
@@ -196,6 +221,28 @@ def save_encrypted_vault(
         os.replace(temporary_path, vault_path)
     finally:
         temporary_path.unlink(missing_ok=True)
+
+
+def save_encrypted_vault(
+    path: str | Path, master_password: str, payload: dict[str, str]
+) -> None:
+    """Merge key updates after authenticating the latest vault contents."""
+    if not all(
+        isinstance(name, str) and isinstance(value, str)
+        for name, value in payload.items()
+    ):
+        raise ValueError("Vault contents must map key names to string values")
+
+    vault_path = Path(path).resolve(strict=False)
+    with _lock_encrypted_vault(vault_path):
+        original = vault_path.read_bytes() if vault_path.exists() else None
+        existing = (
+            load_encrypted_vault(vault_path, master_password)
+            if original is not None
+            else {}
+        )
+        existing.update(payload)
+        _write_encrypted_vault(vault_path, master_password, existing, original)
 
 
 def _sanitize_plaintext_templates(
@@ -2813,9 +2860,9 @@ def gui_main() -> None:
                     )
                     return
                 try:
-                    keys = self._load_vault(master_pwd.get())
-                    keys[key_name.get()] = key_value.get()
-                    self._save_vault(master_pwd.get(), keys)
+                    self._save_vault(
+                        master_pwd.get(), {key_name.get(): key_value.get()}
+                    )
                 except Exception as exc:
                     reason = str(exc) or (
                         "The master password may be incorrect or the vault may be damaged. "

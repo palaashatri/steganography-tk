@@ -9,6 +9,14 @@ import pytest
 from PIL import Image
 
 
+def _save_vault_key_in_process(
+    vault_path: str, password: str, name: str, value: str
+) -> None:
+    from gui.main import save_encrypted_vault
+
+    save_encrypted_vault(Path(vault_path), password, {name: value})
+
+
 @pytest.fixture
 def tk_root():
     """Create a real Tcl interpreter when a display is available."""
@@ -1134,6 +1142,62 @@ def test_vault_save_with_wrong_master_password_preserves_existing_vault(tmp_path
 
     assert vault_path.read_bytes() == original_bytes
     assert load_encrypted_vault(vault_path, "correct horse") == {"key": "original"}
+
+
+def test_vault_key_saves_preserve_keys_from_stale_gui_snapshots(tmp_path):
+    from gui.main import load_encrypted_vault, save_encrypted_vault
+
+    vault_path = tmp_path / "keys.json"
+    password = "correct horse"
+    save_encrypted_vault(vault_path, password, {"existing": "keep"})
+
+    first_instance = load_encrypted_vault(vault_path, password)
+    second_instance = load_encrypted_vault(vault_path, password)
+    first_instance["first"] = "one"
+    second_instance["second"] = "two"
+
+    save_encrypted_vault(vault_path, password, {"first": first_instance["first"]})
+    save_encrypted_vault(vault_path, password, {"second": second_instance["second"]})
+
+    assert load_encrypted_vault(vault_path, password) == {
+        "existing": "keep",
+        "first": "one",
+        "second": "two",
+    }
+
+
+def test_vault_concurrent_process_updates_keep_all_keys(tmp_path):
+    from concurrent.futures import ProcessPoolExecutor
+
+    from gui.main import load_encrypted_vault, save_encrypted_vault
+
+    vault_path = tmp_path / "keys.json"
+    password = "correct horse"
+    save_encrypted_vault(vault_path, password, {"existing": "keep"})
+
+    with ProcessPoolExecutor(max_workers=2) as writers:
+        first_save = writers.submit(
+            _save_vault_key_in_process,
+            str(vault_path),
+            password,
+            "first",
+            "one",
+        )
+        second_save = writers.submit(
+            _save_vault_key_in_process,
+            str(vault_path),
+            password,
+            "second",
+            "two",
+        )
+        first_save.result(timeout=20)
+        second_save.result(timeout=20)
+
+    assert load_encrypted_vault(vault_path, password) == {
+        "existing": "keep",
+        "first": "one",
+        "second": "two",
+    }
 
 
 def test_image_decode_command_requires_an_output_path_and_always_writes_bytes():
