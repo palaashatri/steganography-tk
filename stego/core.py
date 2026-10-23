@@ -8,7 +8,7 @@ import json
 import hashlib
 import zlib
 from typing import List, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 
 from cryptography.hazmat.primitives import hashes
@@ -18,7 +18,8 @@ from PIL import Image
 
 # Constants
 MAGIC = b"STG1"
-VERSION = 1
+LEGACY_VERSION = 1
+VERSION = 2
 FLAG_ENCRYPTED = 0b0000_0001
 FLAG_PRNG = 0b0000_0010
 FLAG_LSB_MATCH = 0b0000_0100
@@ -48,13 +49,14 @@ class StegoHeader:
     salt: bytes
     nonce: bytes
     payload_len: int
+    version: int = VERSION
 
     def to_bytes(self) -> bytes:
         salt_len = len(self.salt)
         nonce_len = len(self.nonce)
         header = bytearray()
         header += MAGIC
-        header.append(VERSION)
+        header.append(self.version)
         header.append(self.flags)
         header.append(salt_len)
         header.append(nonce_len)
@@ -73,8 +75,10 @@ def parse_header(raw: bytes) -> StegoHeader:
         raise ValueError("Magic bytes mismatch; not a supported stego image")
 
     version = raw[4]
-    if version != VERSION:
-        raise ValueError(f"Unsupported version {version}; expected {VERSION}")
+    if version not in (LEGACY_VERSION, VERSION):
+        raise ValueError(
+            f"Unsupported version {version}; expected {LEGACY_VERSION} or {VERSION}"
+        )
 
     flags = raw[5]
     salt_len = raw[6]
@@ -87,7 +91,16 @@ def parse_header(raw: bytes) -> StegoHeader:
 
     salt = raw[12 : 12 + salt_len]
     nonce = raw[12 + salt_len : 12 + salt_len + nonce_len]
-    return StegoHeader(flags=flags, salt=salt, nonce=nonce, payload_len=payload_len)
+    if flags & FLAG_ENCRYPTED and version == VERSION:
+        if salt_len != DEFAULT_SALT_LEN or nonce_len != DEFAULT_NONCE_LEN:
+            raise ValueError(
+                "Version 2 encrypted headers require a 16-byte salt and 12-byte nonce"
+            )
+    elif not flags & FLAG_ENCRYPTED and (salt_len or nonce_len):
+        raise ValueError("Unencrypted headers must not contain salt or nonce bytes")
+    return StegoHeader(
+        flags=flags, salt=salt, nonce=nonce, payload_len=payload_len, version=version
+    )
 
 
 def derive_key(password: str, salt: bytes) -> bytes:
@@ -206,8 +219,9 @@ def max_payload_bytes(image: Image.Image) -> int:
     return total_bits // 8
 
 
-def build_aad(flags: int, salt: bytes, nonce: bytes) -> bytes:
-    return MAGIC + bytes([VERSION, flags]) + salt + nonce
+def build_aad(header: StegoHeader) -> bytes:
+    """Return the complete serialized header used as v2 AES-GCM AAD."""
+    return header.to_bytes()
 
 
 def apply_metadata(plaintext: bytes, metadata: dict | None) -> tuple[bytes, int]:
@@ -239,6 +253,8 @@ def check_expiration(metadata: dict | None) -> None:
         return
 
     # Skip invalid/placeholder expiration dates
+    if not isinstance(expires, str):
+        return
     if expires.startswith("e.g.,") or expires.startswith("Optional"):
         return
 
@@ -249,8 +265,39 @@ def check_expiration(metadata: dict | None) -> None:
         # This allows decoding of data encoded with placeholder text
         return
 
-    if datetime.now() > exp:
+    if exp.tzinfo is None:
+        expired = datetime.now() > exp
+    else:
+        expired = datetime.now(timezone.utc) > exp.astimezone(timezone.utc)
+    if expired:
         raise ValueError("Payload has expired")
+
+
+def _prepare_plaintext(
+    plaintext: bytes, *, compress: bool, metadata: dict | None
+) -> tuple[bytes, int]:
+    """Apply metadata and compression in the same order used by encoding."""
+    prepared, flags = apply_metadata(plaintext, metadata)
+    if compress:
+        prepared = zlib.compress(prepared)
+        flags |= FLAG_COMPRESSED
+    return prepared, flags
+
+
+def estimate_stego_payload_size(
+    plaintext: bytes,
+    *,
+    encrypted: bool,
+    compress: bool,
+    metadata: dict | None,
+) -> int:
+    """Estimate the exact serialized envelope size without generating a key."""
+    prepared, _flags = _prepare_plaintext(
+        plaintext, compress=compress, metadata=metadata
+    )
+    header_size = 12 + (DEFAULT_SALT_LEN + DEFAULT_NONCE_LEN if encrypted else 0)
+    encrypted_payload_size = 16 if encrypted else 0  # AES-GCM authentication tag
+    return header_size + len(prepared) + encrypted_payload_size
 
 
 def build_stego_payload(plaintext: bytes, flags: int, password: str | None,
@@ -258,12 +305,10 @@ def build_stego_payload(plaintext: bytes, flags: int, password: str | None,
     metadata = None
     if comment or expires:
         metadata = {"comment": comment or "", "expires": expires or ""}
-    plaintext, meta_flag = apply_metadata(plaintext, metadata)
-    if meta_flag:
-        flags |= meta_flag
-    if compress:
-        plaintext = zlib.compress(plaintext)
-        flags |= FLAG_COMPRESSED
+    plaintext, payload_flags = _prepare_plaintext(
+        plaintext, compress=compress, metadata=metadata
+    )
+    flags |= payload_flags
 
     salt = b""
     nonce = b""
@@ -273,11 +318,24 @@ def build_stego_payload(plaintext: bytes, flags: int, password: str | None,
         salt = os.urandom(DEFAULT_SALT_LEN)
         nonce = os.urandom(DEFAULT_NONCE_LEN)
         key = derive_key(password, salt)
-        aad = build_aad(flags, salt, nonce)
-        payload_bytes = AESGCM(key).encrypt(nonce, plaintext, aad)
+        header = StegoHeader(
+            flags=flags,
+            salt=salt,
+            nonce=nonce,
+            payload_len=len(plaintext) + 16,
+            version=VERSION,
+        )
+        payload_bytes = AESGCM(key).encrypt(nonce, plaintext, build_aad(header))
+    else:
+        header = StegoHeader(
+            flags=flags,
+            salt=salt,
+            nonce=nonce,
+            payload_len=len(payload_bytes),
+            version=VERSION,
+        )
 
-    header = StegoHeader(flags=flags, salt=salt, nonce=nonce, payload_len=len(payload_bytes)).to_bytes()
-    return header + payload_bytes, flags, salt, nonce
+    return header.to_bytes() + payload_bytes, flags, salt, nonce
 
 
 def parse_stego_payload(stego_data: bytes, password: str | None) -> tuple[int, bytes, dict | None]:
@@ -300,7 +358,10 @@ def parse_stego_payload(stego_data: bytes, password: str | None) -> tuple[int, b
         if not password:
             raise ValueError("Password required to decrypt payload")
         key = derive_key(password, header.salt)
-        aad = build_aad(header.flags, header.salt, header.nonce)
+        if header.version == LEGACY_VERSION:
+            aad = MAGIC + bytes([LEGACY_VERSION, header.flags]) + header.salt + header.nonce
+        else:
+            aad = build_aad(header)
         plaintext = AESGCM(key).decrypt(header.nonce, payload, aad)
     else:
         plaintext = payload

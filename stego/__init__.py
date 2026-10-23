@@ -17,13 +17,14 @@ from .core import (
     extract_bits, extract_bits_prng,
     max_payload_bytes, make_rng,
     build_aad, apply_metadata, extract_metadata, check_expiration,
+    estimate_stego_payload_size,
     build_stego_payload, parse_stego_payload,
 )
 
 from .image import (
     load_image,
     embed_stego_data_in_image, extract_stego_data_from_image,
-    embed_data_in_gif, extract_data_from_gif,
+    image_capacity_bytes,
     embed_data_in_video_frame, extract_data_from_video_frame,
     read_payload,
 )
@@ -67,11 +68,12 @@ __all__ = [
     'extract_bits', 'extract_bits_prng',
     'max_payload_bytes', 'make_rng',
     'build_aad', 'apply_metadata', 'extract_metadata', 'check_expiration',
+    'estimate_stego_payload_size',
     'build_stego_payload', 'parse_stego_payload',
     # Image functions
     'load_image',
     'embed_stego_data_in_image', 'extract_stego_data_from_image',
-    'embed_data_in_gif', 'extract_data_from_gif',
+    'image_capacity_bytes',
     'embed_data_in_video_frame', 'extract_data_from_video_frame',
     'read_payload',
     # Audio functions

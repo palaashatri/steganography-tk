@@ -27,7 +27,6 @@ from stego import (
     load_image,
     embed_stego_data_in_image, extract_stego_data_from_image,
     build_stego_payload, parse_stego_payload,
-    embed_data_in_gif, extract_data_from_gif,
     embed_data_in_video_frame, extract_data_from_video_frame,
     embed_data_in_audio, extract_data_from_audio,
     embed_data_in_video, extract_data_from_video,
@@ -588,8 +587,8 @@ def gui_main() -> None:
             path = filedialog.askopenfilename(
                 title="Open File",
                 filetypes=[
-                    ("All Supported", "*.png *.jpg *.jpeg *.gif *.mp3 *.mp4 *.pdf"),
-                    ("Images", "*.png *.jpg *.jpeg *.gif"),
+                    ("All Supported", "*.png *.jpg *.jpeg *.mp3 *.mp4 *.pdf"),
+                    ("Images", "*.png *.jpg *.jpeg"),
                     ("Audio", "*.mp3 *.mp4 *.m4a"),
                     ("Video", "*.mp4 *.mov *.avi *.mkv"),
                     ("PDF", "*.pdf"),
@@ -617,7 +616,7 @@ Keyboard Shortcuts:
 Workflow:
 1. Hide Data: Embed secret data in images, audio, video, or PDFs
 2. Reveal Data: Extract hidden data from files
-3. Advanced: Frame-level embedding and GIF support
+3. Advanced: Video-frame embedding
 4. Batch Operations: Process multiple files at once
 5. Analysis & Tools: Analyze images, detect steganography
 
@@ -699,7 +698,7 @@ Tips:
         def _load_file_to_appropriate_tab(self, path: str) -> None:
             """Load file into the appropriate tab based on extension."""
             ext = Path(path).suffix.lower()
-            if ext in (".png", ".jpg", ".jpeg", ".gif"):
+            if ext in (".png", ".jpg", ".jpeg"):
                 self.notebook.select(self.tabs["Hide Data"])
             elif ext in AUDIO_EXTS:
                 self.notebook.select(self.tabs["Hide Data"])
@@ -819,7 +818,7 @@ Tips:
             self._build_pdf_decode_only(pdf_frame)
 
         def _build_advanced_tab(self, parent: ttk.Frame) -> None:
-            """Advanced features: video frames and GIFs."""
+            """Advanced video-frame embedding features."""
             sub_notebook = ttk.Notebook(parent)
             sub_notebook.pack(fill=tk.BOTH, expand=True, padx=PADDING_SMALL, pady=PADDING_SMALL)
 
@@ -828,13 +827,9 @@ Tips:
                 sub_notebook.forget(tab_id)
 
             vf_frame = ttk.Frame(sub_notebook)
-            gif_frame = ttk.Frame(sub_notebook)
-
             sub_notebook.add(vf_frame, text="Video Frames")
-            sub_notebook.add(gif_frame, text="GIF")
 
             self._build_video_frames_tab(vf_frame)
-            self._build_gif_tab(gif_frame)
 
         def _build_image_tab(self, parent: ttk.Frame) -> None:
             container = ttk.Frame(parent)
@@ -872,7 +867,7 @@ Tips:
                 encode,
                 "Cover image",
                 cover_var,
-                filetypes=[("Images", "*.png *.jpg *.jpeg *.gif")],
+                filetypes=[("Images", "*.png *.jpg *.jpeg")],
                 on_change=self._update_image_preview,
             )
             ttk.Label(encode, textvariable=capacity_var, foreground="#666").pack(anchor=tk.W, padx=PADDING_MEDIUM, pady=(0, PADDING_SMALL))
@@ -981,7 +976,7 @@ Tips:
                 decode,
                 "Stego image",
                 stego_var,
-                filetypes=[("Images", "*.png *.jpg *.jpeg *.gif")],
+                filetypes=[("Images", "*.png *.jpg *.jpeg")],
                 on_change=self._update_image_preview,
             )
 
@@ -1184,110 +1179,6 @@ Tips:
                 text="Extract from Frame",
                 command=lambda: self._decode_video_frame(
                     dec_video.get(),
-                    dec_frame.get(),
-                    dec_pwd.get(),
-                    dec_out.get(),
-                    dec_method.get(),
-                    dec_prng.get(),
-                ),
-            ).pack(anchor=tk.W, padx=10, pady=(0, 10))
-
-        def _build_gif_tab(self, parent: ttk.Frame) -> None:
-            container = ttk.Frame(parent)
-            container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
-
-            encode = ttk.Labelframe(container, text="Encode GIF")
-            encode.pack(fill=tk.X, pady=(0, 12))
-
-            gif_var = tk.StringVar(master=self.root)
-            frame_var = tk.IntVar(master=self.root, value=0)
-            msg_var = tk.StringVar(master=self.root)
-            payload_file_var = tk.StringVar(master=self.root)
-            pwd_var = tk.StringVar(master=self.root)
-            out_var = tk.StringVar(master=self.root)
-            method_var = tk.StringVar(master=self.root, value="lsb")
-            prng_var = tk.StringVar(master=self.root)
-            compress_var = tk.BooleanVar(master=self.root, value=False)
-            comment_var = tk.StringVar(master=self.root)
-            expires_var = tk.StringVar(master=self.root)
-
-            self._file_row(encode, "GIF file", gif_var, filetypes=[("GIF", "*.gif")])
-            frame_row = ttk.Frame(encode)
-            frame_row.pack(fill=tk.X, padx=10, pady=(0, 8))
-            ttk.Label(frame_row, text="Frame index").pack(side=tk.LEFT)
-            ttk.Spinbox(frame_row, from_=0, to=10_000, textvariable=frame_var, width=8).pack(side=tk.LEFT, padx=8)
-
-            ttk.Label(encode, text="Message").pack(anchor=tk.W, padx=10)
-            ttk.Entry(encode, textvariable=msg_var).pack(fill=tk.X, padx=10, pady=(0, 8))
-            self._file_row(encode, "Payload file (optional)", payload_file_var, filetypes=[("All Files", "*.*")])
-
-            ttk.Label(encode, text="Password (optional)").pack(anchor=tk.W, padx=10)
-            ttk.Entry(encode, textvariable=pwd_var, show="*").pack(fill=tk.X, padx=10, pady=(0, 8))
-
-            method_row = ttk.Frame(encode)
-            method_row.pack(fill=tk.X, padx=10, pady=(0, 8))
-            ttk.Label(method_row, text="Method").pack(side=tk.LEFT)
-            ttk.Combobox(method_row, textvariable=method_var, state="readonly",
-                         values=["lsb", "lsb-prng", "lsb-match-prng"], width=18).pack(side=tk.LEFT, padx=8)
-            ttk.Label(method_row, text="PRNG key").pack(side=tk.LEFT, padx=(16, 0))
-            ttk.Entry(method_row, textvariable=prng_var, width=28).pack(side=tk.LEFT, padx=8)
-
-            ttk.Checkbutton(encode, text="Compress payload", variable=compress_var).pack(anchor=tk.W, padx=10, pady=(0, 8))
-            ttk.Label(encode, text="Comment (optional)").pack(anchor=tk.W, padx=10)
-            ttk.Entry(encode, textvariable=comment_var).pack(fill=tk.X, padx=10, pady=(0, 6))
-            ttk.Label(encode, text="Expires (YYYY-MM-DD or ISO datetime)").pack(anchor=tk.W, padx=10)
-            ttk.Entry(encode, textvariable=expires_var).pack(fill=tk.X, padx=10, pady=(0, 8))
-
-            self._save_row(encode, "Output GIF", out_var, def_ext=".gif", filetypes=[("GIF", "*.gif")])
-
-            ttk.Button(
-                encode,
-                text="Embed in Frame",
-                command=lambda: self._encode_gif(
-                    gif_var.get(),
-                    frame_var.get(),
-                    msg_var.get(),
-                    payload_file_var.get(),
-                    pwd_var.get(),
-                    out_var.get(),
-                    method_var.get(),
-                    prng_var.get(),
-                    compress_var.get(),
-                    comment_var.get(),
-                    expires_var.get(),
-                ),
-            ).pack(anchor=tk.W, padx=10, pady=(0, 10))
-
-            decode = ttk.Labelframe(container, text="Decode GIF")
-            decode.pack(fill=tk.X)
-
-            dec_gif = tk.StringVar(master=self.root)
-            dec_frame = tk.IntVar(master=self.root, value=0)
-            dec_pwd = tk.StringVar(master=self.root)
-            dec_out = tk.StringVar(master=self.root)
-            dec_method = tk.StringVar(master=self.root, value="lsb")
-            dec_prng = tk.StringVar(master=self.root)
-
-            self._file_row(decode, "GIF file", dec_gif, filetypes=[("GIF", "*.gif")])
-            dec_row = ttk.Frame(decode)
-            dec_row.pack(fill=tk.X, padx=10, pady=(0, 8))
-            ttk.Label(dec_row, text="Frame index").pack(side=tk.LEFT)
-            ttk.Spinbox(dec_row, from_=0, to=10_000, textvariable=dec_frame, width=8).pack(side=tk.LEFT, padx=8)
-            ttk.Label(dec_row, text="Method").pack(side=tk.LEFT, padx=(16, 0))
-            ttk.Combobox(dec_row, textvariable=dec_method, state="readonly",
-                         values=["lsb", "lsb-prng", "lsb-match-prng"], width=18).pack(side=tk.LEFT, padx=8)
-            ttk.Label(dec_row, text="PRNG key").pack(side=tk.LEFT, padx=(16, 0))
-            ttk.Entry(dec_row, textvariable=dec_prng, width=28).pack(side=tk.LEFT, padx=8)
-
-            ttk.Label(decode, text="Password (if needed)").pack(anchor=tk.W, padx=10)
-            ttk.Entry(decode, textvariable=dec_pwd, show="*").pack(fill=tk.X, padx=10, pady=(0, 8))
-            self._save_row(decode, "Output file", dec_out, def_ext=".bin", filetypes=[("All Files", "*.*")])
-
-            ttk.Button(
-                decode,
-                text="Extract from Frame",
-                command=lambda: self._decode_gif(
-                    dec_gif.get(),
                     dec_frame.get(),
                     dec_pwd.get(),
                     dec_out.get(),
@@ -1608,7 +1499,7 @@ Tips:
 
             ttk.Label(portable_box, text="Password (optional)").pack(anchor=tk.W, padx=10)
             ttk.Entry(portable_box, textvariable=port_pwd, show="*").pack(fill=tk.X, padx=10, pady=(0, 6))
-            ttk.Label(portable_box, text="Frame index (GIF/Video frames)").pack(anchor=tk.W, padx=10)
+            ttk.Label(portable_box, text="Video frame index").pack(anchor=tk.W, padx=10)
             ttk.Entry(portable_box, textvariable=port_frame).pack(fill=tk.X, padx=10, pady=(0, 8))
 
             def run_portable():
@@ -2402,67 +2293,6 @@ Tips:
                     self._show_text_output(stdout or "(No text output)")
 
             self._run_command(cmd, "PDF decode", on_success)
-
-        def _encode_gif(self, gif_path: str, frame_index: int, message: str, payload_file: str,
-                        password: str, output: str, method: str, prng_key: str,
-                        compress: bool, comment: str, expires: str) -> None:
-            if not gif_path:
-                messagebox.showerror("Error", "Select a GIF file.")
-                return
-            if not message and not payload_file:
-                messagebox.showerror("Error", "Enter a message or select a payload file.")
-                return
-            if not output:
-                messagebox.showerror("Error", "Select an output GIF.")
-                return
-            if method in ("lsb-prng", "lsb-match-prng") and not prng_key:
-                messagebox.showerror("Error", "PRNG key is required for the selected method.")
-                return
-
-            cmd = ["python", str(Path(__file__).parent.parent / "app.py"), "gif-encode",
-                   "--gif", gif_path, "--out", output, "--frame", str(frame_index), "--method", method]
-            if payload_file:
-                cmd.extend(["--in-file", payload_file])
-            else:
-                cmd.extend(["--message", message])
-            if password:
-                cmd.extend(["--password", password])
-            if prng_key:
-                cmd.extend(["--prng-key", prng_key])
-            if compress:
-                cmd.append("--compress")
-            if comment:
-                cmd.extend(["--comment", comment])
-            if expires:
-                cmd.extend(["--expires", expires])
-
-            self._run_command(cmd, "GIF encode")
-
-        def _decode_gif(self, gif_path: str, frame_index: int, password: str, output: str,
-                        method: str, prng_key: str) -> None:
-            if not gif_path:
-                messagebox.showerror("Error", "Select a GIF file.")
-                return
-            if method in ("lsb-prng", "lsb-match-prng") and not prng_key:
-                messagebox.showerror("Error", "PRNG key is required for the selected method.")
-                return
-
-            cmd = ["python", str(Path(__file__).parent.parent / "app.py"), "gif-decode",
-                   "--gif", gif_path, "--frame", str(frame_index), "--method", method]
-            if output:
-                cmd.extend(["--out", output])
-            if password:
-                cmd.extend(["--password", password])
-            if prng_key:
-                cmd.extend(["--prng-key", prng_key])
-
-            def on_success(stdout: str):
-                if output:
-                    messagebox.showinfo("Success", f"Decoded output saved to {output}")
-                else:
-                    self._show_text_output(stdout or "(No text output)")
-
-            self._run_command(cmd, "GIF decode", on_success)
 
         def _encode_video_frame(self, video_path: str, frame_index: int, message: str, payload_file: str,
                                 password: str, output: str, method: str, prng_key: str,

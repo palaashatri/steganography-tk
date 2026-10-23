@@ -1,16 +1,16 @@
-"""Image steganography operations - LSB embedding in images, GIFs, and video frames."""
+"""Image and lossless video-frame LSB embedding operations."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from PIL import Image, ImageSequence
+from PIL import Image
 import imageio.v2 as imageio
 import numpy as np
 
 from .core import (
     bytes_to_bits, bits_to_bytes, embed_bits, extract_bits,
     embed_bits_prng, extract_bits_prng, flatten_channels, make_rng,
-    max_payload_bytes, parse_header, build_stego_payload, parse_stego_payload,
+    parse_header, build_stego_payload, parse_stego_payload,
     FLAG_PAYLOAD_TEXT,
 )
 
@@ -25,7 +25,22 @@ def load_image(path: str) -> Image.Image:
     return img
 
 
+def image_capacity_bytes(image: Image.Image) -> int:
+    """Return whole bytes available in the image's RGB least significant bits."""
+    return image.width * image.height * 3 // 8
+
+
+def _require_output_suffix(path: str, suffix: str, mode: str) -> None:
+    if Path(path).suffix.lower() != suffix:
+        raise ValueError(f"{mode} output must use the {suffix.upper()} format")
+
+
 def embed_stego_data_in_image(image: Image.Image, stego_data: bytes, method: str, prng_key: str | None) -> Image.Image:
+    if len(stego_data) > image_capacity_bytes(image):
+        raise ValueError(
+            f"Payload too large: need {len(stego_data)} bytes but image can store "
+            f"{image_capacity_bytes(image)} bytes"
+        )
     bits = bytes_to_bits(stego_data)
     if method == "lsb":
         return embed_bits(image, bits)
@@ -81,82 +96,71 @@ def read_payload(message: str | None, in_file: str | None) -> bytes:
         return f.read()
 
 
-def embed_data_in_gif(gif_path: str, output_path: str, frame_index: int,
-                      message: str | None = None, in_file: str | None = None,
-                      password: str | None = None, method: str = "lsb",
-                      prng_key: str | None = None, compress: bool = False,
-                      comment: str | None = None, expires: str | None = None) -> None:
-    payload = read_payload(message, in_file)
-    flags = FLAG_PAYLOAD_TEXT
-    stego_data, _flags, _salt, _nonce = build_stego_payload(payload, flags, password, compress, comment, expires)
-
-    image = Image.open(gif_path)
-    frames = [frame.copy().convert("RGB") for frame in ImageSequence.Iterator(image)]
-    if frame_index < 0 or frame_index >= len(frames):
-        raise ValueError("Frame index out of range")
-
-    max_bytes = max_payload_bytes(frames[frame_index])
-    if len(stego_data) > max_bytes:
-        raise ValueError("Payload too large for selected frame")
-
-    frames[frame_index] = embed_stego_data_in_image(frames[frame_index], stego_data, method, prng_key)
-    frames[0].save(output_path, save_all=True, append_images=frames[1:], loop=0, duration=image.info.get("duration", 100))
-
-
-def extract_data_from_gif(gif_path: str, frame_index: int, password: str | None = None,
-                          method: str = "lsb", prng_key: str | None = None) -> bytes:
-    image = Image.open(gif_path)
-    frames = [frame.copy().convert("RGB") for frame in ImageSequence.Iterator(image)]
-    if frame_index < 0 or frame_index >= len(frames):
-        raise ValueError("Frame index out of range")
-    stego_data = extract_stego_data_from_image(frames[frame_index], method, prng_key)
-    _flags, plaintext, _meta = parse_stego_payload(stego_data, password)
-    return plaintext
-
-
 def embed_data_in_video_frame(video_path: str, output_path: str, frame_index: int,
                               message: str | None = None, in_file: str | None = None,
                               password: str | None = None, method: str = "lsb",
                               prng_key: str | None = None, compress: bool = False,
                               comment: str | None = None, expires: str | None = None) -> None:
+    _require_output_suffix(output_path, ".mkv", "Video-frame")
+    if Path(video_path).resolve() == Path(output_path).resolve():
+        raise ValueError("Video-frame input and output paths must differ")
+    if frame_index < 0:
+        raise ValueError("Frame index out of range")
     payload = read_payload(message, in_file)
     flags = FLAG_PAYLOAD_TEXT
     stego_data, _flags, _salt, _nonce = build_stego_payload(payload, flags, password, compress, comment, expires)
 
-    reader = imageio.get_reader(video_path)
-    meta = reader.get_meta_data()
-    fps = meta.get("fps", 24)
-    writer = imageio.get_writer(output_path, fps=fps)
+    probe = imageio.get_reader(video_path)
+    try:
+        meta = probe.get_meta_data()
+        try:
+            selected_frame = probe.get_data(frame_index)
+        except IndexError as exc:
+            raise ValueError("Frame index out of range") from exc
+        selected_image = Image.fromarray(selected_frame).convert("RGB")
+        if len(stego_data) > image_capacity_bytes(selected_image):
+            raise ValueError("Payload too large for selected frame")
+        fps = meta.get("fps") or 24
+    finally:
+        probe.close()
 
-    embedded = False
-    for idx, frame in enumerate(reader):
-        if idx == frame_index:
-            pil = Image.fromarray(frame).convert("RGB")
-            max_bytes_val = max_payload_bytes(pil)
-            if len(stego_data) > max_bytes_val:
-                reader.close()
-                writer.close()
-                raise ValueError("Payload too large for selected frame")
-            stego_frame = embed_stego_data_in_image(pil, stego_data, method, prng_key)
-            writer.append_data(np.asarray(stego_frame))
-            embedded = True
-        else:
+    reader = imageio.get_reader(video_path)
+    writer = None
+    try:
+        writer = imageio.get_writer(
+            output_path,
+            fps=fps,
+            codec="ffv1",
+            pixelformat="bgr0",
+            macro_block_size=1,
+            format="FFMPEG",
+        )
+        for idx, frame in enumerate(reader):
+            if idx == frame_index:
+                pil = Image.fromarray(frame).convert("RGB")
+                frame = np.asarray(
+                    embed_stego_data_in_image(pil, stego_data, method, prng_key)
+                )
+            else:
+                frame = np.asarray(Image.fromarray(frame).convert("RGB"))
             writer.append_data(frame)
-    reader.close()
-    writer.close()
-    if not embedded:
-        raise ValueError("Frame index out of range")
+    finally:
+        reader.close()
+        if writer is not None:
+            writer.close()
 
 
 def extract_data_from_video_frame(video_path: str, frame_index: int, password: str | None = None,
                                   method: str = "lsb", prng_key: str | None = None) -> bytes:
+    if frame_index < 0:
+        raise ValueError("Frame index out of range")
     reader = imageio.get_reader(video_path)
     try:
         frame = reader.get_data(frame_index)
     except IndexError as exc:
-        reader.close()
         raise ValueError("Frame index out of range") from exc
-    reader.close()
+    finally:
+        reader.close()
     pil = Image.fromarray(frame).convert("RGB")
     stego_data = extract_stego_data_from_image(pil, method, prng_key)
     _flags, plaintext, _meta = parse_stego_payload(stego_data, password)

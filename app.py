@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 from typing import Sequence
 
 # Import all steganography operations from stego package
@@ -15,7 +16,6 @@ from stego import (
     load_image, read_payload, build_stego_payload, parse_stego_payload,
     # Image operations
     embed_stego_data_in_image, extract_stego_data_from_image,
-    embed_data_in_gif, extract_data_from_gif,
     embed_data_in_video_frame, extract_data_from_video_frame,
     # Audio operations
     embed_data_in_audio, extract_data_from_audio,
@@ -30,6 +30,8 @@ from stego import (
 
 def encode_image(args: argparse.Namespace) -> None:
     """Encode data into image using LSB steganography."""
+    if Path(args.out).suffix.lower() != ".png":
+        raise ValueError("Image stego output must use the PNG format")
     image = load_image(args.image)
     payload = read_payload(args.message, args.in_file)
     flags = 0
@@ -37,7 +39,7 @@ def encode_image(args: argparse.Namespace) -> None:
         payload, flags, args.password, args.compress, args.comment, args.expires
     )
     stego_image = embed_stego_data_in_image(image, stego_data, args.method, args.prng_key)
-    stego_image.save(args.out)
+    stego_image.save(args.out, format="PNG")
     logging.info("Wrote stego image to %s", args.out)
 
 
@@ -115,36 +117,10 @@ def decode_pdf(args: argparse.Namespace) -> None:
     extract_data_from_pdf(args.pdf, args.out, password=args.password)
 
 
-def encode_gif(args: argparse.Namespace) -> None:
-    """Encode data into GIF frame."""
-    embed_data_in_gif(
-        args.gif, args.out, args.frame,
-        message=getattr(args, 'message', None),
-        in_file=getattr(args, 'in_file', None),
-        password=args.password,
-        method=getattr(args, 'method', 'lsb'),
-        prng_key=getattr(args, 'prng_key', None),
-        compress=getattr(args, 'compress', False),
-        comment=getattr(args, 'comment', None),
-        expires=getattr(args, 'expires', None),
-    )
-
-
-def decode_gif(args: argparse.Namespace) -> None:
-    """Decode data from GIF frame."""
-    plaintext = extract_data_from_gif(
-        args.gif, args.frame,
-        password=args.password,
-        method=getattr(args, 'method', 'lsb'),
-        prng_key=getattr(args, 'prng_key', None),
-    )
-    with open(args.out, "wb") as f:
-        f.write(plaintext)
-    logging.info("Wrote decoded payload to %s", args.out)
-
-
 def encode_video_frame(args: argparse.Namespace) -> None:
     """Encode data into video frame."""
+    if Path(args.out).suffix.lower() != ".mkv":
+        raise ValueError("Video-frame stego output must use the MKV format")
     embed_data_in_video_frame(
         args.video, args.out, args.frame,
         message=getattr(args, 'message', None),
@@ -289,31 +265,6 @@ def build_parser() -> argparse.ArgumentParser:
     dec_pdf.add_argument("--password", help="Decryption password")
     dec_pdf.set_defaults(func=decode_pdf)
 
-    # GIF encode
-    enc_gif = subparsers.add_parser("gif-encode", help="Encode data into GIF frame")
-    enc_gif.add_argument("--gif", required=True, help="Input GIF path")
-    enc_gif.add_argument("--out", required=True, help="Output stego GIF path")
-    enc_gif.add_argument("--frame", type=int, required=True, help="Frame index")
-    enc_gif.add_argument("--message", help="Text message")
-    enc_gif.add_argument("--in-file", help="File to hide")
-    enc_gif.add_argument("--password", help="Encryption password")
-    enc_gif.add_argument("--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"])
-    enc_gif.add_argument("--prng-key", help="PRNG key")
-    enc_gif.add_argument("--compress", action="store_true")
-    enc_gif.add_argument("--comment", help="Metadata comment")
-    enc_gif.add_argument("--expires", help="Expiration date")
-    enc_gif.set_defaults(func=encode_gif)
-
-    # GIF decode
-    dec_gif = subparsers.add_parser("gif-decode", help="Decode data from GIF frame")
-    dec_gif.add_argument("--gif", required=True, help="Stego GIF path")
-    dec_gif.add_argument("--frame", type=int, required=True, help="Frame index")
-    dec_gif.add_argument("--out", required=True, help="Output path")
-    dec_gif.add_argument("--password", help="Decryption password")
-    dec_gif.add_argument("--method", default="lsb", choices=["lsb", "lsb-prng", "lsb-match-prng"])
-    dec_gif.add_argument("--prng-key", help="PRNG key")
-    dec_gif.set_defaults(func=decode_gif)
-
     # Video frame encode
     enc_vf = subparsers.add_parser("video-frame-encode", help="Encode data into video frame")
     enc_vf.add_argument("--video", required=True, help="Input video path")
@@ -352,7 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     decoder.add_argument("--method", choices=["lsb", "lsb-prng", "lsb-match-prng"])
     decoder.add_argument("--prng-key")
     decoder.add_argument("--password")
-    decoder.add_argument("--frame", type=int, help="Frame index (for GIF/video)")
+    decoder.add_argument("--frame", type=int, help="Video frame index")
     decoder.set_defaults(func=build_portable_decoder)
 
     # File association
