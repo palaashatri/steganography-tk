@@ -16,7 +16,7 @@ Metadata is visible to tag and document inspection tools. Encryption protects th
 
 | Command | Supported carrier extensions | Metadata location |
 | --- | --- | --- |
-| `audio-encode` / `audio-decode` | `.mp3`, `.mp4`, `.m4a`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aac` | MP3 APIC frame, MP4-family atom, or audio metadata tag |
+| `audio-encode` / `audio-decode` | `.mp3`, `.mp4`, `.m4a`, `.m4b`, `.m4p`, `.m4v`, `.mov`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aac` | MP3 APIC frame, MP4-family atom, or audio metadata tag |
 | `video-encode` / `video-decode` | `.mp4`, `.m4a`, `.m4b`, `.m4p`, `.m4v`, `.mov`, `.mkv`, `.avi`, `.webm` | MP4-family atom or visible container comment |
 | `pdf-encode` / `pdf-decode` | `.pdf` | PDF document metadata field |
 
@@ -81,7 +81,7 @@ docker build --target test -t stego-test .
 docker run --rm stego-test
 ```
 
-CI runs the test suite on Linux, macOS, and Windows. Windows and macOS downloadable packages are attached to published GitHub releases; this repository does not publish a release as part of normal branch verification.
+The [CI workflow](https://github.com/palaashatri/steganography-tk/actions/workflows/ci-cd.yml) runs source tests on Linux, macOS, and Windows, and builds and runs the Docker test image. The Docker verification commands above use the same test suite. [Windows and macOS downloadable packages are attached to published GitHub releases](https://github.com/palaashatri/steganography-tk/releases); this repository does not publish a release as part of normal branch verification.
 
 ## Project structure
 

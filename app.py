@@ -218,7 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     enc_aud.add_argument("--audio", required=True, help="Input audio path")
-    enc_aud.add_argument("--out", required=True, help="Output stego audio path")
+    enc_aud.add_argument("--out", required=True, help="Output audio carrier path")
     enc_aud.add_argument("--message", help="Text message")
     enc_aud.add_argument("--in-file", help="File to hide")
     enc_aud.add_argument("--image", help="Original image file bytes for MP3 or MP4-family metadata")
@@ -232,7 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     dec_aud = subparsers.add_parser(
         "audio-decode", help="Extract a payload from visible audio metadata"
     )
-    dec_aud.add_argument("--audio", required=True, help="Stego audio path")
+    dec_aud.add_argument("--audio", required=True, help="Audio carrier path")
     dec_aud.add_argument("--out", required=True, help="Output path")
     dec_aud.add_argument("--password", help="Decryption password")
     dec_aud.set_defaults(func=decode_audio)
@@ -248,7 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     enc_vid.add_argument("--video", required=True, help="Input video path")
-    enc_vid.add_argument("--out", required=True, help="Output stego video path")
+    enc_vid.add_argument("--out", required=True, help="Output video carrier path")
     enc_vid.add_argument("--message", help="Text message")
     enc_vid.add_argument("--in-file", help="File to hide")
     enc_vid.add_argument("--image", help="Original image file bytes for MP4-family metadata")
@@ -263,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     dec_vid = subparsers.add_parser(
         "video-decode", help="Extract a payload from visible video metadata"
     )
-    dec_vid.add_argument("--video", required=True, help="Stego video path")
+    dec_vid.add_argument("--video", required=True, help="Video carrier path")
     dec_vid.add_argument("--out", required=True, help="Output path")
     dec_vid.add_argument("--password", help="Decryption password")
     dec_vid.set_defaults(func=decode_video)
@@ -279,7 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     enc_pdf.add_argument("--pdf", required=True, help="Input PDF path")
-    enc_pdf.add_argument("--out", required=True, help="Output stego PDF path")
+    enc_pdf.add_argument("--out", required=True, help="Output PDF carrier path")
     enc_pdf.add_argument("--message", help="Text message")
     enc_pdf.add_argument("--in-file", help="File to hide")
     enc_pdf.add_argument("--password", help="Encryption password")
@@ -292,7 +292,7 @@ def build_parser() -> argparse.ArgumentParser:
     dec_pdf = subparsers.add_parser(
         "pdf-decode", help="Extract a payload from visible PDF metadata"
     )
-    dec_pdf.add_argument("--pdf", required=True, help="Stego PDF path")
+    dec_pdf.add_argument("--pdf", required=True, help="PDF carrier path")
     dec_pdf.add_argument("--out", required=True, help="Output path")
     dec_pdf.add_argument("--password", help="Decryption password")
     dec_pdf.set_defaults(func=decode_pdf)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import shutil
 import subprocess
@@ -18,6 +19,7 @@ from stego.audio import embed_data_in_audio, extract_data_from_audio
 from stego.video import embed_data_in_video
 from stego.core import (
     FLAG_ENCRYPTED,
+    FLAG_META,
     FLAG_PAYLOAD_IMAGE,
     FLAG_PAYLOAD_TEXT,
     LEGACY_VERSION,
@@ -30,7 +32,10 @@ from stego.core import (
 from stego import core
 
 
-AUDIO_FORMATS = (".mp3", ".mp4", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".aac")
+AUDIO_FORMATS = (
+    ".mp3", ".mp4", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".aac",
+    ".m4b", ".m4p", ".m4v", ".mov",
+)
 PASSWORD = "metadata-test-password"
 PAYLOAD = b"\x00\x01binary payload\xfe\xff"
 MAX_METADATA_STEGO_BYTES = 1_000_000
@@ -50,15 +55,26 @@ def _make_audio(path, extension: str) -> None:
         ".mp3": "libmp3lame",
         ".mp4": "aac",
         ".m4a": "aac",
+        ".m4b": "aac",
+        ".m4p": "aac",
+        ".m4v": "aac",
+        ".mov": "aac",
         ".wav": "pcm_s16le",
         ".flac": "flac",
         ".ogg": "libvorbis",
         ".opus": "libopus",
         ".aac": "aac",
     }
+    output_format = {
+        ".m4b": "ipod",
+        ".m4p": "ipod",
+        ".m4v": "mp4",
+        ".mov": "mov",
+    }.get(extension)
+    output_options = ["-f", output_format] if output_format else []
     _run_ffmpeg(
         "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100:duration=0.25",
-        "-vn", "-c:a", codecs[extension], str(path),
+        "-vn", "-c:a", codecs[extension], *output_options, str(path),
     )
 
 
@@ -424,3 +440,56 @@ def test_audio_cli_capacity_error_is_nonzero_and_leaves_no_output(temp_dir):
     assert result.returncode != 0
     assert "capacity" in result.stderr.lower() or "too large" in result.stderr.lower()
     assert not output.exists()
+
+
+@pytest.mark.parametrize("metadata_json", ("[]", '"scalar"', "17", "true"))
+def test_metadata_envelope_rejects_json_that_is_not_an_object(metadata_json):
+    metadata_bytes = metadata_json.encode("utf-8")
+    plaintext = len(metadata_bytes).to_bytes(4, "big") + metadata_bytes + PAYLOAD
+    header = StegoHeader(
+        flags=FLAG_META | FLAG_PAYLOAD_TEXT,
+        salt=b"",
+        nonce=b"",
+        payload_len=len(plaintext),
+    )
+    envelope = header.to_bytes() + plaintext
+
+    with pytest.raises(ValueError, match="(?i)metadata|json object"):
+        parse_stego_payload(envelope, None)
+
+
+@pytest.mark.parametrize("preexisting", (False, True), ids=("new", "existing"))
+def test_audio_backend_mismatch_preserves_output(
+    mp3_source, temp_dir, preexisting
+):
+    output = temp_dir / "wrong-backend.wav"
+    original = b"existing destination must survive"
+    if preexisting:
+        output.write_bytes(original)
+
+    with pytest.raises(ValueError, match="backend|extension|carrier"):
+        embed_data_in_audio(str(mp3_source), str(output), message="payload")
+
+    if preexisting:
+        assert output.read_bytes() == original
+    else:
+        assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("command", "expected_output_help"),
+    (
+        ("audio-encode", "Output audio carrier path"),
+        ("video-encode", "Output video carrier path"),
+        ("pdf-encode", "Output PDF carrier path"),
+    ),
+)
+def test_metadata_encode_cli_names_output_as_carrier(
+    command, expected_output_help
+):
+    result = subprocess.run(
+        ["python", "app.py", command, "--help"], capture_output=True, text=True
+    )
+
+    assert result.returncode == 0
+    assert expected_output_help in result.stdout

@@ -261,7 +261,15 @@ def extract_metadata(plaintext: bytes) -> tuple[dict | None, bytes]:
     if meta_len < 0 or meta_len > len(plaintext) - 4:
         raise ValueError("Invalid metadata length")
     meta_bytes = plaintext[4:4 + meta_len]
-    metadata = json.loads(meta_bytes.decode("utf-8")) if meta_len else None
+    if meta_len:
+        try:
+            metadata = json.loads(meta_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Metadata must contain valid JSON") from exc
+        if not isinstance(metadata, dict):
+            raise ValueError("Metadata JSON must be an object")
+    else:
+        metadata = None
     return metadata, plaintext[4 + meta_len:]
 
 

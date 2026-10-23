@@ -269,6 +269,20 @@ def _read_tagged_audio(path: str) -> str:
     return value[0]
 
 
+def _audio_metadata_backend(path: str) -> str | None:
+    """Return the extractor selected by an audio carrier's extension."""
+    ext = Path(path).suffix.lower()
+    if ext == ".mp3":
+        return "mp3"
+    if ext in MP4_CONTAINER_EXTS:
+        return "mp4"
+    if ext in {".wav", ".aac"}:
+        return "id3"
+    if ext in TAGGED_AUDIO_EXTS:
+        return "mutagen"
+    return None
+
+
 def embed_data_in_audio(
     audio_path: str,
     output_path: str,
@@ -281,8 +295,16 @@ def embed_data_in_audio(
     expires: str | None = None,
 ) -> None:
     """Store file data in visible audio metadata supported by this container."""
+    backend = _audio_metadata_backend(audio_path)
+    if backend is None:
+        raise ValueError("Unsupported audio format for visible metadata embedding")
+    if _audio_metadata_backend(output_path) != backend:
+        raise ValueError(
+            "Input and output audio carrier extensions select different metadata backends"
+        )
+
     ext = Path(audio_path).suffix.lower()
-    if ext == ".mp3":
+    if backend == "mp3":
         embed_data_in_mp3(
             audio_path,
             output_path,
@@ -295,7 +317,7 @@ def embed_data_in_audio(
             expires=expires,
         )
         return
-    if ext in MP4_CONTAINER_EXTS:
+    if backend == "mp4":
         embed_data_in_mp4(
             audio_path,
             output_path,
@@ -308,8 +330,6 @@ def embed_data_in_audio(
             expires=expires,
         )
         return
-    if ext not in TAGGED_AUDIO_EXTS:
-        raise ValueError("Unsupported audio format for visible metadata embedding")
     if image_path is not None:
         raise ValueError("Image attachments are supported only in MP3 and MP4-family metadata")
 
@@ -328,14 +348,14 @@ def extract_data_from_audio(
     audio_path: str, output_path: str, password: str | None = None
 ) -> None:
     """Extract file data from visible metadata in supported audio formats."""
-    ext = Path(audio_path).suffix.lower()
-    if ext == ".mp3":
+    backend = _audio_metadata_backend(audio_path)
+    if backend == "mp3":
         extract_data_from_mp3(audio_path, output_path, password=password)
         return
-    if ext in MP4_CONTAINER_EXTS:
+    if backend == "mp4":
         extract_data_from_mp4(audio_path, output_path, password=password)
         return
-    if ext not in TAGGED_AUDIO_EXTS:
+    if backend is None:
         raise ValueError("Unsupported audio format for visible metadata extraction")
 
     stego_data = decode_stego_base64(_read_tagged_audio(audio_path))

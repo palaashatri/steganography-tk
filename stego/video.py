@@ -41,14 +41,31 @@ def _ffmpeg_extract_comment(path: str) -> str:
     raise ValueError("No embedded data found in video metadata comment")
 
 
+def _video_metadata_backend(path: str) -> str | None:
+    """Return the extractor selected by a video carrier's extension."""
+    ext = Path(path).suffix.lower()
+    if ext in MP4_CONTAINER_EXTS:
+        return "mp4"
+    if ext in FFMPEG_VIDEO_EXTS:
+        return "ffmpeg-comment"
+    return None
+
+
 def embed_data_in_video(video_path: str, output_path: str, password: str | None = None,
                         message: str | None = None, in_file: str | None = None,
                         image_path: str | None = None, mp3_path: str | None = None,
                         compress: bool = False, comment: str | None = None,
                         expires: str | None = None) -> None:
     """Store a payload in visible video metadata for the selected container."""
-    ext = Path(video_path).suffix.lower()
-    if ext in MP4_CONTAINER_EXTS:
+    backend = _video_metadata_backend(video_path)
+    if backend is None:
+        raise ValueError("Unsupported video format")
+    if _video_metadata_backend(output_path) != backend:
+        raise ValueError(
+            "Input and output video carrier extensions select different metadata backends"
+        )
+
+    if backend == "mp4":
         embed_data_in_mp4(
             video_path,
             output_path,
@@ -62,10 +79,8 @@ def embed_data_in_video(video_path: str, output_path: str, password: str | None 
             expires=expires,
         )
         return
-    if ext not in FFMPEG_VIDEO_EXTS:
-        raise ValueError("Unsupported video format")
     if image_path or mp3_path:
-        raise ValueError("Image/MP3 payloads are only supported for MP4/MOV containers")
+        raise ValueError("Image/MP3 payloads are only supported for MP4-family containers")
 
     payload = read_payload(message, in_file)
     flags = FLAG_PAYLOAD_TEXT
@@ -80,11 +95,11 @@ def embed_data_in_video(video_path: str, output_path: str, password: str | None 
 
 def extract_data_from_video(video_path: str, output_path: str, password: str | None = None) -> None:
     """Extract a payload from visible video metadata."""
-    ext = Path(video_path).suffix.lower()
-    if ext in MP4_CONTAINER_EXTS:
+    backend = _video_metadata_backend(video_path)
+    if backend == "mp4":
         extract_data_from_mp4(video_path, output_path, password=password)
         return
-    if ext not in FFMPEG_VIDEO_EXTS:
+    if backend is None:
         raise ValueError("Unsupported video format")
 
     stego_b64 = _ffmpeg_extract_comment(video_path)
