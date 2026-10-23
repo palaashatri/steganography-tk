@@ -74,11 +74,13 @@ def _make_audio(path, extension: str) -> None:
         ".mov": "aac",
         ".wav": "pcm_s16le",
         ".flac": "flac",
-        ".ogg": "libvorbis",
+        # Keep this fixture independent of optional Vorbis encoder support.
+        ".ogg": "flac",
         ".opus": "libopus",
         ".aac": "aac",
     }
     output_format = {
+        ".ogg": "ogg",
         ".m4b": "ipod",
         ".m4p": "ipod",
         ".m4v": "mp4",

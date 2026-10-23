@@ -947,10 +947,14 @@ def run_batch_commands(
     return error
 
 
-def normalize_dnd_files(data: str, widget: Any) -> list[str]:
-    """Parse Tk's Tcl-list representation of dropped file paths."""
+def normalize_dnd_files(
+    data: str | tuple[str, ...] | list[str], widget: Any
+) -> list[str]:
+    """Parse dropped paths from Tk's Tcl string or converted list result."""
     if not data:
         return []
+    if isinstance(data, (tuple, list)):
+        return [str(path) for path in data]
     return list(widget.tk.splitlist(data))
 
 

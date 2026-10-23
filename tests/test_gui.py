@@ -628,11 +628,12 @@ def test_tcl_drop_normalization_and_callback_preserve_complex_paths(tk_root):
         r"C:\Users\Ada\Pictures\cover with braces {draft} ü.png",
         "/tmp/payload with spaces {notes} 雪.bin",
     ]
-    tcl_list = tk_root.tk.call("list", *paths)
-    event_data = str(tk_root.tk.call("format", "%s", tcl_list))
+    event_data = tk_root.tk.call("list", *paths)
+    string_event_data = " ".join(f"{{{path}}}" for path in paths)
     variable = tk.StringVar(master=tk_root)
 
     assert normalize_dnd_files(event_data, tk_root) == paths
+    assert normalize_dnd_files(string_event_data, tk_root) == paths
     assert handle_dnd_drop(event_data, tk_root, variable) == paths
     assert variable.get() == paths[0]
 
