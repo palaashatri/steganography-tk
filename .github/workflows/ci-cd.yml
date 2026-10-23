@@ -1,209 +1,93 @@
-name: CI/CD - Build, Test & Release
+name: CI and Platform Releases
 
 on:
   push:
-    branches: [ main, gui, uiuximprov ]
   pull_request:
-    branches: [ main, gui ]
   release:
-    types: [ created ]
+    types: [published]
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }} - Python ${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.14']
+    uses: ./.github/workflows/test.yml
 
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Cache pip packages
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install system dependencies (Ubuntu)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg xvfb
-
-    - name: Install system dependencies (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew install ffmpeg
-
-    - name: Install system dependencies (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        choco install ffmpeg -y
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-xvfb
-
-    - name: Run tests (Linux)
-      if: runner.os == 'Linux'
-      env:
-        PYTHONPATH: ${{ github.workspace }}
-      run: |
-        xvfb-run -a pytest -v --cov=stego --cov=gui --cov=app --cov-report=xml tests/
-
-    - name: Run tests (macOS/Windows)
-      if: runner.os != 'Linux'
-      env:
-        PYTHONPATH: ${{ github.workspace }}
-      run: |
-        pytest -v --cov=stego --cov=gui --cov=app --cov-report=xml tests/
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        flags: ${{ runner.os }}
-
-  docker-test:
-    name: Docker Build & Test
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build test image
-      run: |
-        docker build --target test -t stego-test .
-
-    - name: Run tests in Docker
-      run: |
-        docker run --rm stego-test
-
-  build-executables:
-    name: Build Executable - ${{ matrix.os }}
+  windows-release:
+    name: Build Windows downloads
     needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact_name: stego-linux
-            build_cli: pyinstaller --onefile --name stego-cli app.py
-            build_gui: pyinstaller --onefile --windowed --name stego-gui gui/main.py
-          - os: macos-latest
-            artifact_name: stego-macos
-            build_cli: pyinstaller --onefile --name stego-cli app.py
-            build_gui: pyinstaller --onefile --windowed --name stego-gui gui/main.py
-          - os: windows-latest
-            artifact_name: stego-windows
-            build_cli: pyinstaller --onefile --name stego-cli.exe app.py
-            build_gui: pyinstaller --onefile --windowed --name stego-gui.exe gui/main.py
-
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
+      - name: Install application and packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "pyinstaller>=6.20,<7"
 
-    - name: Build CLI executable
-      run: ${{ matrix.build_cli }}
+      - name: Build CLI executable
+        run: python -m PyInstaller --noconfirm --clean --onefile --paths . --collect-all imageio_ffmpeg --name stego-cli app.py
 
-    - name: Build GUI executable
-      run: ${{ matrix.build_gui }}
+      - name: Build GUI executable
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --paths . --collect-all imageio_ffmpeg --collect-all tkinterdnd2 --name stego-gui gui/main.py
 
-    - name: Package executables (Unix)
-      if: runner.os != 'Windows'
-      run: |
-        cd dist
-        tar -czf ${{ matrix.artifact_name }}.tar.gz stego-cli stego-gui
-        cd ..
+      - name: Package Windows download
+        shell: pwsh
+        run: Compress-Archive -Path @('dist/stego-cli.exe', 'dist/stego-gui.exe') -DestinationPath 'dist/steganography-windows.zip' -Force
 
-    - name: Package executables (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        cd dist
-        7z a ${{ matrix.artifact_name }}.zip stego-cli.exe stego-gui.exe
-        cd ..
+      - name: Attach Windows ZIP to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/steganography-windows.zip
+          fail_on_unmatched_files: true
 
-    - name: Upload Release Asset (Unix)
-      if: runner.os != 'Windows'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./dist/${{ matrix.artifact_name }}.tar.gz
-        asset_name: ${{ matrix.artifact_name }}.tar.gz
-        asset_content_type: application/gzip
-
-    - name: Upload Release Asset (Windows)
-      if: runner.os == 'Windows'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./dist/${{ matrix.artifact_name }}.zip
-        asset_name: ${{ matrix.artifact_name }}.zip
-        asset_content_type: application/zip
-
-  docker-publish:
-    name: Build & Push Docker Image
+  macos-release:
+    name: Build macOS downloads
     needs: test
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release'
-
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-    - name: Login to DockerHub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Install application and packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "pyinstaller>=6.20,<7"
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ secrets.DOCKERHUB_USERNAME }}/steganography
-        tags: |
-          type=ref,event=branch
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
+      - name: Build CLI executable
+        run: python -m PyInstaller --noconfirm --clean --onefile --paths . --collect-all imageio_ffmpeg --name stego-cli app.py
 
-    - name: Build and push
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        platforms: linux/amd64,linux/arm64
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - name: Build GUI executable
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --paths . --collect-all imageio_ffmpeg --collect-all tkinterdnd2 --name stego-gui gui/main.py
+
+      - name: Package macOS download
+        run: |
+          mkdir -p dist/steganography-macos
+          ditto dist/stego-cli dist/steganography-macos/stego-cli
+          ditto dist/stego-gui.app dist/steganography-macos/stego-gui.app
+          ditto -c -k --sequesterRsrc --keepParent dist/steganography-macos dist/steganography-macos.zip
+
+      - name: Attach macOS ZIP to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/steganography-macos.zip
+          fail_on_unmatched_files: true

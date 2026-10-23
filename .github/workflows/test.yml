@@ -1,67 +1,84 @@
 name: Tests
 
 on:
-  push:
-    branches: [ main, gui, uiuximprov ]
-  pull_request:
-    branches: [ main, gui ]
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: Test - ${{ matrix.os }}
+    name: Test - ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ['3.14']
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip'
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-    - name: Install system dependencies (Ubuntu)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg xvfb libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ffmpeg \
+            xvfb \
+            xauth \
+            libxkbcommon-x11-0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0 \
+            tk \
+            tk-dev
 
-    - name: Install system dependencies (macOS)
-      if: runner.os == 'macOS'
-      run: brew install ffmpeg
+      - name: Install macOS system dependencies
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
 
-    - name: Install system dependencies (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: choco install ffmpeg -y
+      - name: Install Windows system dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ffmpeg -y
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-xvfb
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest pytest-cov
 
-    - name: Run tests (Linux with Xvfb)
-      if: runner.os == 'Linux'
-      env:
-        PYTHONPATH: ${{ github.workspace }}
-      run: xvfb-run -a pytest -v --cov=. --cov-report=xml --cov-report=term
+      - name: Run tests on Linux with Xvfb
+        if: runner.os == 'Linux'
+        env:
+          CI: ""
+          PYTHONPATH: ${{ github.workspace }}
+        run: xvfb-run -a pytest -v --cov=stego --cov=gui --cov=app --cov-report=xml --cov-report=term tests/
 
-    - name: Run tests (macOS/Windows)
-      if: runner.os != 'Linux'
-      env:
-        PYTHONPATH: ${{ github.workspace }}
-      run: pytest -v --cov=. --cov-report=xml --cov-report=term
+      - name: Run tests on macOS and Windows
+        if: runner.os != 'Linux'
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest -v --cov=stego --cov=gui --cov=app --cov-report=xml --cov-report=term tests/
 
-    - name: Upload coverage
-      uses: codecov/codecov-action@v3
-      if: matrix.os == 'ubuntu-latest'
-      with:
-        files: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
+  docker-test:
+    name: Docker test target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test image
+        run: docker build --target test -t stego-test .
+
+      - name: Run tests in Docker with Xvfb
+        run: docker run --rm stego-test
