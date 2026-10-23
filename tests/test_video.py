@@ -173,6 +173,43 @@ def test_video_backend_mismatch_preserves_output(
         assert not output.exists()
 
 
+@pytest.mark.parametrize("preexisting", (False, True), ids=("new", "existing"))
+def test_video_same_backend_suffix_change_preserves_output(temp_dir, preexisting):
+    source = temp_dir / "source.mkv"
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=64x64:rate=2:duration=1",
+            "-an", "-c:v", "libvpx-vp9", str(source),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = temp_dir / "different-suffix.webm"
+    original = b"existing destination must survive"
+    if preexisting:
+        output.write_bytes(original)
+
+    with pytest.raises(ValueError, match="suffix|extension"):
+        embed_data_in_video(str(source), str(output), message="payload")
+
+    if preexisting:
+        assert output.read_bytes() == original
+    else:
+        assert not output.exists()
+
+
+def test_video_matching_suffix_is_case_insensitive(temp_dir):
+    source = temp_dir / "source.mkv"
+    _make_video(source, ".mkv")
+    output = temp_dir / "carrier.MKV"
+
+    embed_data_in_video(str(source), str(output), message="payload")
+
+    assert output.exists()
+
+
 def test_mp4_video_image_attachment_preserves_original_bytes_and_checks_password(
     mp4_source, temp_dir
 ):

@@ -476,6 +476,36 @@ def test_audio_backend_mismatch_preserves_output(
         assert not output.exists()
 
 
+@pytest.mark.parametrize("preexisting", (False, True), ids=("new", "existing"))
+def test_audio_same_backend_suffix_change_preserves_output(temp_dir, preexisting):
+    source = temp_dir / "source.wav"
+    _make_audio(source, ".wav")
+    output = temp_dir / "different-suffix.aac"
+    original = b"existing destination must survive"
+    if preexisting:
+        output.write_bytes(original)
+
+    with pytest.raises(ValueError, match="suffix|extension"):
+        embed_data_in_audio(str(source), str(output), message="payload")
+
+    if preexisting:
+        assert output.read_bytes() == original
+    else:
+        assert not output.exists()
+
+
+def test_audio_matching_suffix_is_case_insensitive(temp_dir):
+    source = temp_dir / "source.wav"
+    _make_audio(source, ".wav")
+    output = temp_dir / "carrier.WAV"
+    extracted = temp_dir / "extracted.bin"
+
+    embed_data_in_audio(str(source), str(output), message="payload")
+    extract_data_from_audio(str(output), str(extracted))
+
+    assert extracted.read_bytes() == b"payload"
+
+
 @pytest.mark.parametrize(
     ("command", "expected_output_help"),
     (

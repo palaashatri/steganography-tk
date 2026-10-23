@@ -57,6 +57,11 @@ def embed_data_in_video(video_path: str, output_path: str, password: str | None 
                         compress: bool = False, comment: str | None = None,
                         expires: str | None = None) -> None:
     """Store a payload in visible video metadata for the selected container."""
+    input_suffix = Path(video_path).suffix.casefold()
+    output_suffix = Path(output_path).suffix.casefold()
+    if input_suffix != output_suffix:
+        raise ValueError("Input and output video carrier suffixes must match")
+
     backend = _video_metadata_backend(video_path)
     if backend is None:
         raise ValueError("Unsupported video format")

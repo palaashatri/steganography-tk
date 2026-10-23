@@ -295,6 +295,11 @@ def embed_data_in_audio(
     expires: str | None = None,
 ) -> None:
     """Store file data in visible audio metadata supported by this container."""
+    input_suffix = Path(audio_path).suffix.casefold()
+    output_suffix = Path(output_path).suffix.casefold()
+    if input_suffix != output_suffix:
+        raise ValueError("Input and output audio carrier suffixes must match")
+
     backend = _audio_metadata_backend(audio_path)
     if backend is None:
         raise ValueError("Unsupported audio format for visible metadata embedding")
