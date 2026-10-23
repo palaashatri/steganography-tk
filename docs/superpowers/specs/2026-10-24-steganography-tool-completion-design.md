@@ -31,6 +31,7 @@ The requested branch workflow and AGENTS.md select approach 1.
 
 - New encrypted payloads will use a versioned header whose serialized bytes, including lengths, are supplied as AES-GCM AAD. Legacy payload decoding will be retained only where it can be unambiguously and safely recognized.
 - Metadata modes will have an explicit finite payload limit so capacity overflow is deterministic and testable.
+- Retained audio/video attachment options preserve the original image or MP3 file bytes. New attachment payloads use the versioned envelope; legacy version 1 image attachments remain decodable where their dimensions are present.
 - Detectability feedback will use a pairs-of-values chi-square statistic for LSB-replacement images. It will report the statistic and a plain-language heuristic, and state that it does not prove whether data is present or guarantee undetectability.
 - Image/frame embedding will be available only where the output can be verified to preserve embedded bits. A mode that cannot meet that contract will be removed from the UI/CLI rather than reported as successful.
 - macOS downloads will be packaged in the platform's standard app bundle/archive form when a single-file executable is not appropriate; users will not need to install Python.

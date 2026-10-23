@@ -138,8 +138,8 @@ git commit -m "fix: authenticate headers and preserve lossless payloads"
 - Modify: `README.md`
 - Test: `tests/test_audio.py`
 - Test: `tests/test_cli.py`
-- Test: `tests/test_video.py`
-- Test: `tests/test_pdf.py`
+- Create: `tests/test_video.py`
+- Create: `tests/test_pdf.py`
 
 **Interfaces:**
 - Consumes: the versioned payload API from Task 2.
@@ -148,7 +148,7 @@ git commit -m "fix: authenticate headers and preserve lossless payloads"
 
 - [ ] **Step 1: Add failing backend round-trip tests**
 
-For every retained backend, test byte-identical extraction of a small binary file, wrong-password rejection, and overflow rejection at the 1,000,000-byte encoded-blob limit. Use small generated media/PDF fixtures and assert no output is written on overflow.
+For each retained extension (`.mp3`, `.mp4`, `.m4a`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aac`, `.mkv`, `.avi`, `.webm`, and PDF), test byte-identical extraction of a small binary file, wrong-password rejection, and overflow rejection at the 1,000,000-byte encoded-blob limit. Use generated media/PDF fixtures and assert no output is written on overflow. Also cover the retained MP3/MP4 image-attachment and MP3-in-MP4 options with byte-identical round trips, wrong-password rejection, and the same overflow guard; encode original attachment file bytes in new envelopes while preserving legacy version 1 image decoding. Verify version 1 encrypted MP3 and MP4 fixture decoding, full-header v2 tamper rejection through extraction, and clear `ValueError` results for truncated or invalid-base64 container data.
 
 - [ ] **Step 2: Run metadata tests to verify failure**
 
@@ -158,7 +158,7 @@ Expected: missing mode coverage, capacity checks, or existing MP4 errors fail be
 
 - [ ] **Step 3: Enforce the common encoded-blob limit in each backend**
 
-Validate the finalized header and payload bytes before invoking Mutagen, FFmpeg, or PyPDF2. Normalize malformed, truncated, and invalid-base64 payloads to clear `ValueError` results.
+Use the versioned payload builder for new MP3/MP4 envelopes so the complete serialized header is authenticated before encryption. Preserve legacy version 1 decoding where it can be recognized safely. Validate the complete finalized stego blob before invoking Mutagen, FFmpeg, or PyPDF2. Normalize malformed, truncated, and invalid-base64 payloads to clear `ValueError` results.
 
 - [ ] **Step 4: Add failing CLI disclosure and mode-removal tests**
 
