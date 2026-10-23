@@ -7,12 +7,15 @@ import random
 import json
 import hashlib
 import zlib
+import base64
+import binascii
 from typing import List, Sequence
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from PIL import Image
 
@@ -41,6 +44,23 @@ DEFAULT_SALT_LEN = 16
 DEFAULT_NONCE_LEN = 12
 PBKDF2_ITERATIONS = 200_000
 KEY_LEN = 32  # AES-256
+MAX_METADATA_STEGO_BYTES = 1_000_000
+
+
+def ensure_metadata_capacity(stego_data: bytes) -> None:
+    """Reject metadata envelopes larger than the shared encoded-blob limit."""
+    if len(stego_data) > MAX_METADATA_STEGO_BYTES:
+        raise ValueError(
+            "Visible metadata payload exceeds the 1,000,000-byte encoded limit"
+        )
+
+
+def decode_stego_base64(encoded: str | bytes) -> bytes:
+    """Decode a metadata tag strictly, with a stable public error type."""
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Embedded metadata is not valid base64") from exc
 
 
 @dataclass
@@ -352,6 +372,14 @@ def parse_stego_payload(stego_data: bytes, password: str | None) -> tuple[int, b
     payload_end = payload_start + header.payload_len
     if payload_end > len(stego_data):
         raise ValueError("Stego payload length is invalid")
+    trailing = len(stego_data) - payload_end
+    legacy_image_dimensions = (
+        header.version == LEGACY_VERSION
+        and bool(header.flags & FLAG_PAYLOAD_IMAGE)
+        and trailing == 8
+    )
+    if trailing and not legacy_image_dimensions:
+        raise ValueError("Stego payload length does not match serialized data")
     payload = stego_data[payload_start:payload_end]
 
     if header.flags & FLAG_ENCRYPTED:
@@ -362,7 +390,12 @@ def parse_stego_payload(stego_data: bytes, password: str | None) -> tuple[int, b
             aad = MAGIC + bytes([LEGACY_VERSION, header.flags]) + header.salt + header.nonce
         else:
             aad = build_aad(header)
-        plaintext = AESGCM(key).decrypt(header.nonce, payload, aad)
+        try:
+            plaintext = AESGCM(key).decrypt(header.nonce, payload, aad)
+        except InvalidTag as exc:
+            raise ValueError(
+                "Password is incorrect or the embedded payload was modified"
+            ) from exc
     else:
         plaintext = payload
 

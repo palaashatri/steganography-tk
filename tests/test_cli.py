@@ -2,11 +2,16 @@
 
 import subprocess
 import sys
+import wave
 from pathlib import Path
 
 import pytest
 from PIL import Image
 import numpy as np
+from PyPDF2 import PdfWriter
+
+
+MAX_METADATA_STEGO_BYTES = 1_000_000
 
 
 class TestCLI:
@@ -149,3 +154,56 @@ class TestCLI:
         # Verify it's a valid image
         img = Image.open(output_qr)
         assert img is not None
+
+    @pytest.mark.parametrize("command", ("audio-encode", "video-encode", "pdf-encode"))
+    def test_metadata_encode_help_discloses_visible_storage_and_capacity(
+        self, cli_runner, command
+    ):
+        result = subprocess.run(
+            cli_runner + [command, "--help"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "visible metadata" in result.stdout.lower()
+        assert "1,000,000" in result.stdout
+
+    def test_removed_gif_commands_are_not_registered(self, cli_runner):
+        result = subprocess.run(
+            cli_runner + ["gif-encode", "--help"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode != 0
+        assert "invalid choice" in result.stderr.lower()
+
+    def test_pdf_cli_overflow_returns_nonzero_without_output(self, cli_runner, temp_dir):
+        source_pdf = temp_dir / "source.pdf"
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        with source_pdf.open("wb") as handle:
+            writer.write(handle)
+        oversized = temp_dir / "oversized.bin"
+        oversized.write_bytes(b"x" * (MAX_METADATA_STEGO_BYTES + 1))
+        output = temp_dir / "must-not-exist.pdf"
+
+        result = subprocess.run(
+            cli_runner
+            + [
+                "pdf-encode",
+                "--pdf",
+                str(source_pdf),
+                "--out",
+                str(output),
+                "--in-file",
+                str(oversized),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode != 0
+        assert "capacity" in result.stderr.lower() or "too large" in result.stderr.lower()
+        assert not output.exists()

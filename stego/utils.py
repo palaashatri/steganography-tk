@@ -42,7 +42,7 @@ print(f"Decoded output saved to: {{out}}")
 """
 
     ext = stego_file.suffix.lower()
-    if ext in (".png", ".jpg", ".jpeg", ".gif"):
+    if ext == ".png":
         args = ["decode", "--image", str(target), "--out", str(out)]
         if method:
             args += ["--method", method]

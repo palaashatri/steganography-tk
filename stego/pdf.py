@@ -1,4 +1,4 @@
-"""PDF steganography operations."""
+"""Visible metadata embedding in PDF document properties."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from PyPDF2 import PdfReader, PdfWriter
 
 from .core import (
     FLAG_PAYLOAD_TEXT,
-    build_stego_payload, parse_stego_payload,
+    build_stego_payload, decode_stego_base64, ensure_metadata_capacity,
+    parse_stego_payload,
 )
 from .image import read_payload
 
@@ -18,11 +19,13 @@ def embed_data_in_pdf(pdf_path: str, output_path: str, password: str | None = No
                       message: str | None = None, in_file: str | None = None,
                       compress: bool = False, comment: str | None = None,
                       expires: str | None = None) -> None:
-    """Embed data in PDF metadata."""
+    """Store data in visible PDF document metadata."""
     payload = read_payload(message, in_file)
     flags = FLAG_PAYLOAD_TEXT
     stego_data, flags, _salt, _nonce = build_stego_payload(payload, flags, password, compress, comment, expires)
+    ensure_metadata_capacity(stego_data)
 
+    # Capacity is checked before parsing or opening the source PDF for rewrite.
     reader = PdfReader(pdf_path)
     writer = PdfWriter()
     for page in reader.pages:
@@ -36,17 +39,17 @@ def embed_data_in_pdf(pdf_path: str, output_path: str, password: str | None = No
 
     with open(output_path, "wb") as f:
         writer.write(f)
-    logging.info("Embedded data in PDF: %s", output_path)
+    logging.info("Stored visible metadata in PDF: %s", output_path)
 
 
 def extract_data_from_pdf(pdf_path: str, output_path: str | None = None, password: str | None = None) -> bytes:
-    """Extract data from PDF metadata."""
+    """Extract a payload from visible PDF document metadata."""
     reader = PdfReader(pdf_path)
     meta = reader.metadata or {}
     stego_b64 = meta.get("/StegData")
     if not stego_b64:
         raise ValueError("No embedded data found in PDF")
-    stego_data = base64.b64decode(stego_b64)
+    stego_data = decode_stego_base64(str(stego_b64))
     _flags, plaintext, _meta = parse_stego_payload(stego_data, password)
     if output_path:
         with open(output_path, "wb") as f:

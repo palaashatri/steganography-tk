@@ -1,35 +1,38 @@
-"""Audio steganography operations - MP3, MP4, WAV, FLAC embedding."""
+"""Visible metadata embedding for MP3, MP4/M4A, and tagged audio files."""
 
 from __future__ import annotations
 
-import os
 import base64
 import logging
 import shutil
 from pathlib import Path
-from PIL import Image
 
 from mutagen import File as MutagenFile
-from mutagen.id3 import ID3, APIC, TXXX
+from mutagen.id3 import APIC, ID3, TXXX
 from mutagen.mp4 import MP4
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from PIL import Image
 
 from .core import (
-    FLAG_PAYLOAD_IMAGE, FLAG_PAYLOAD_TEXT, FLAG_PAYLOAD_MP3,
-    FLAG_ENCRYPTED, FLAG_COMPRESSED, FLAG_META,
-    TAGGED_AUDIO_EXTS, MP4_CONTAINER_EXTS,
-    DEFAULT_SALT_LEN, DEFAULT_NONCE_LEN,
-    StegoHeader, parse_header, derive_key, build_aad,
-    apply_metadata, extract_metadata, check_expiration,
-    build_stego_payload, parse_stego_payload,
+    FLAG_PAYLOAD_IMAGE,
+    FLAG_PAYLOAD_MP3,
+    FLAG_PAYLOAD_TEXT,
+    LEGACY_VERSION,
+    MP4_CONTAINER_EXTS,
+    TAGGED_AUDIO_EXTS,
+    StegoHeader,
+    build_stego_payload,
+    decode_stego_base64,
+    ensure_metadata_capacity,
+    parse_header,
+    parse_stego_payload,
 )
 from .image import load_image, read_payload
 
 
 def load_mp3(path: str) -> None:
-    """Load and validate MP3 file exists."""
+    """Check that an MP3 attachment exists and can be opened."""
     try:
-        with open(path, "rb") as f:
+        with open(path, "rb"):
             pass
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"MP3 file not found: {path}") from exc
@@ -38,9 +41,9 @@ def load_mp3(path: str) -> None:
 
 
 def load_mp4(path: str) -> None:
-    """Load and validate MP4 file exists."""
+    """Check that an MP4-family carrier exists and can be opened."""
     try:
-        with open(path, "rb") as f:
+        with open(path, "rb"):
             pass
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"MP4 file not found: {path}") from exc
@@ -48,368 +51,185 @@ def load_mp4(path: str) -> None:
         raise ValueError(f"Could not open MP4 file '{path}': {exc}") from exc
 
 
-def embed_data_in_mp3(mp3_path: str, output_path: str, password: str | None = None,
-                      message: str | None = None, in_file: str | None = None,
-                      image_path: str | None = None, compress: bool = False,
-                      comment: str | None = None, expires: str | None = None) -> None:
-    """Embed text/file data or image into an MP3 file using ID3 tags with optional encryption."""
-    load_mp3(mp3_path)
+def _image_bytes(path: str) -> bytes:
+    """Validate an image attachment and preserve its original encoded bytes."""
+    load_image(path)
+    return Path(path).read_bytes()
 
-    # Determine payload type
-    payload_count = sum([message is not None, in_file is not None, image_path is not None])
-    if payload_count == 0:
-        raise ValueError("Provide --message, --in-file, or --image")
-    if payload_count > 1:
+
+def _payload_for_mp3(
+    message: str | None, in_file: str | None, image_path: str | None
+) -> tuple[bytes, int]:
+    supplied = sum(value is not None for value in (message, in_file, image_path))
+    if supplied != 1:
+        if supplied == 0:
+            raise ValueError("Provide --message, --in-file, or --image")
         raise ValueError("Provide only one of: --message, --in-file, or --image")
+    if image_path is not None:
+        return _image_bytes(image_path), FLAG_PAYLOAD_IMAGE
+    return read_payload(message, in_file), FLAG_PAYLOAD_TEXT
 
-    flags = 0
-    salt = b""
-    nonce = b""
-    plaintext = b""
-    metadata = b""  # Additional metadata after payload
 
-    if image_path:
-        # Handle image embedding
-        flags |= FLAG_PAYLOAD_IMAGE
-        image = load_image(image_path)
+def _payload_for_mp4(
+    message: str | None,
+    in_file: str | None,
+    image_path: str | None,
+    mp3_path: str | None,
+) -> tuple[bytes, int]:
+    supplied = sum(
+        value is not None for value in (message, in_file, image_path, mp3_path)
+    )
+    if supplied != 1:
+        if supplied == 0:
+            raise ValueError("Provide --message, --in-file, --image, or --mp3")
+        raise ValueError("Provide only one of: --message, --in-file, --image, or --mp3")
+    if image_path is not None:
+        return _image_bytes(image_path), FLAG_PAYLOAD_IMAGE
+    if mp3_path is not None:
+        load_mp3(mp3_path)
+        return Path(mp3_path).read_bytes(), FLAG_PAYLOAD_MP3
+    return read_payload(message, in_file), FLAG_PAYLOAD_TEXT
 
-        # Convert image to bytes
-        image_bytes = bytearray()
-        for pixel in image.getdata():
-            image_bytes.extend(pixel)
-        plaintext = bytes(image_bytes)
 
-        # Store image dimensions in metadata
-        metadata = image.size[0].to_bytes(4, byteorder="big") + image.size[1].to_bytes(4, byteorder="big")
-    else:
-        # Handle text/file embedding
-        flags |= FLAG_PAYLOAD_TEXT
-        if message:
-            plaintext = message.encode("utf-8")
-        else:
-            assert in_file is not None
-            with open(in_file, "rb") as f:
-                plaintext = f.read()
+def _header_from_blob(stego_data: bytes) -> StegoHeader:
+    if len(stego_data) < 12:
+        raise ValueError("Stego data too short to contain a complete header")
+    header_len = 12 + stego_data[6] + stego_data[7]
+    if len(stego_data) < header_len:
+        raise ValueError("Stego header is incomplete")
+    return parse_header(stego_data[:header_len])
 
-    metadata_dict = None
-    if comment or expires:
-        metadata_dict = {"comment": comment or "", "expires": expires or ""}
-    plaintext, meta_flag = apply_metadata(plaintext, metadata_dict)
-    if meta_flag:
-        flags |= meta_flag
 
-    # Optional compression
-    if compress:
-        import zlib
-        plaintext = zlib.compress(plaintext)
-        flags |= FLAG_COMPRESSED
+def _write_extracted_payload(
+    stego_data: bytes, flags: int, plaintext: bytes, output_path: str
+) -> None:
+    """Write a decoded payload, retaining support for legacy pixel-only images."""
+    header = _header_from_blob(stego_data)
+    if flags & FLAG_PAYLOAD_IMAGE and header.version == LEGACY_VERSION:
+        dimensions_offset = 12 + len(header.salt) + len(header.nonce) + header.payload_len
+        dimensions = stego_data[dimensions_offset:dimensions_offset + 8]
+        if len(dimensions) != 8:
+            raise ValueError("Legacy image payload is missing its dimensions")
+        width = int.from_bytes(dimensions[:4], "big")
+        height = int.from_bytes(dimensions[4:], "big")
+        if width <= 0 or height <= 0 or len(plaintext) != width * height * 3:
+            raise ValueError("Legacy image payload has invalid dimensions or pixel data")
+        Image.frombytes("RGB", (width, height), plaintext).save(output_path)
+        return
+    Path(output_path).write_bytes(plaintext)
 
-    # Encrypt (optional)
-    payload_bytes = plaintext
-    if password:
-        flags |= FLAG_ENCRYPTED
-        salt = os.urandom(DEFAULT_SALT_LEN)
-        nonce = os.urandom(DEFAULT_NONCE_LEN)
-        key = derive_key(password, salt)
-        aad = build_aad(flags, salt, nonce)
-        payload_bytes = AESGCM(key).encrypt(nonce, plaintext, aad)
 
-    # Create header
-    header = StegoHeader(flags=flags, salt=salt, nonce=nonce, payload_len=len(payload_bytes)).to_bytes()
-    stego_data = header + payload_bytes + metadata
+def embed_data_in_mp3(
+    mp3_path: str,
+    output_path: str,
+    password: str | None = None,
+    message: str | None = None,
+    in_file: str | None = None,
+    image_path: str | None = None,
+    compress: bool = False,
+    comment: str | None = None,
+    expires: str | None = None,
+) -> None:
+    """Store a versioned envelope in an MP3 ID3 APIC frame."""
+    load_mp3(mp3_path)
+    plaintext, flags = _payload_for_mp3(message, in_file, image_path)
+    stego_data, flags, _salt, _nonce = build_stego_payload(
+        plaintext, flags, password, compress, comment, expires
+    )
+    ensure_metadata_capacity(stego_data)
 
-    # Load or create ID3 tag
     try:
         tags = ID3(mp3_path)
-    except:
+    except Exception:
         tags = ID3()
-
-    # Store embedded data in APIC (Attached Picture) frame as binary data
     tags["APIC"] = APIC(
         encoding=3,
         mime="application/octet-stream",
         type=0,
         desc="STEG_DATA",
-        data=stego_data
+        data=stego_data,
     )
 
-    # Save to output file
-    shutil.copy(mp3_path, output_path)
+    shutil.copyfile(mp3_path, output_path)
     tags.save(output_path, v2_version=3)
+    kind = "image attachment" if flags & FLAG_PAYLOAD_IMAGE else "file data"
+    logging.info("Stored %s in visible MP3 metadata: %s", kind, output_path)
 
-    payload_type = "image" if (flags & FLAG_PAYLOAD_IMAGE) else "text/file"
-    logging.info("Embedded %s in MP3: %s", payload_type, output_path)
 
-
-def extract_data_from_mp3(mp3_path: str, output_path: str, password: str | None = None) -> None:
-    """Extract text/file data or image from an MP3 file's ID3 tags with optional decryption."""
+def extract_data_from_mp3(
+    mp3_path: str, output_path: str, password: str | None = None
+) -> None:
+    """Extract an envelope from an MP3 ID3 APIC frame."""
     load_mp3(mp3_path)
-
     try:
         tags = ID3(mp3_path)
-    except:
-        raise ValueError("No ID3 tags found in MP3 file")
-
-    # Extract stego data from APIC frame
-    apic_frame = None
-    for key in tags.keys():
-        if key.startswith("APIC"):
-            apic_frame = tags[key]
-            break
-
-    if apic_frame is None:
-        raise ValueError("No embedded data found in MP3 file")
-
-    stego_data = apic_frame.data
-
-    # Parse header
-    cursor = 0
-
-    def read_bytes(num_bytes: int) -> bytes:
-        nonlocal cursor
-        data = stego_data[cursor:cursor + num_bytes]
-        cursor += num_bytes
-        return data
-
-    header_prefix = read_bytes(12)
-    salt_len = header_prefix[6]
-    nonce_len = header_prefix[7]
-
-    extra_header = b""
-    if salt_len + nonce_len > 0:
-        extra_header = read_bytes(salt_len + nonce_len)
-
-    header = parse_header(header_prefix + extra_header)
-
-    # Read payload
-    payload = read_bytes(header.payload_len)
-
-    # Decrypt if needed
-    if header.flags & FLAG_ENCRYPTED:
-        if not password:
-            raise ValueError("Password required to decrypt embedded data")
-        key = derive_key(password, header.salt)
-        aad = build_aad(header.flags, header.salt, header.nonce)
-        plaintext = AESGCM(key).decrypt(header.nonce, payload, aad)
-    else:
-        plaintext = payload
-
-    if header.flags & FLAG_COMPRESSED:
-        import zlib
-        try:
-            plaintext = zlib.decompress(plaintext)
-        except zlib.error as exc:
-            raise ValueError("Compressed payload could not be decompressed") from exc
-
-    if header.flags & FLAG_META:
-        metadata, plaintext = extract_metadata(plaintext)
-        check_expiration(metadata)
-
-    # Determine payload type and extract accordingly
-    if header.flags & FLAG_PAYLOAD_IMAGE:
-        # Extract image
-        img_width = int.from_bytes(read_bytes(4), byteorder="big")
-        img_height = int.from_bytes(read_bytes(4), byteorder="big")
-
-        # Reconstruct image
-        pixels = []
-        for i in range(0, len(plaintext), 3):
-            if i + 3 <= len(plaintext):
-                pixels.append(tuple(plaintext[i:i+3]))
-
-        image = Image.new("RGB", (img_width, img_height))
-        image.putdata(pixels)
-        image.save(output_path)
-        logging.info("Extracted image from MP3: %s", output_path)
-    else:
-        # Extract text/file
-        with open(output_path, "wb") as f:
-            f.write(plaintext)
-        logging.info("Extracted text/file from MP3: %s", output_path)
+    except Exception as exc:
+        raise ValueError("No ID3 tags found in MP3 file") from exc
+    frame = next(
+        (
+            value
+            for value in tags.values()
+            if isinstance(value, APIC) and value.desc == "STEG_DATA"
+        ),
+        None,
+    )
+    if frame is None:
+        raise ValueError("No embedded data found in MP3 metadata")
+    stego_data = frame.data
+    flags, plaintext, _metadata = parse_stego_payload(stego_data, password)
+    _write_extracted_payload(stego_data, flags, plaintext, output_path)
 
 
-def embed_data_in_mp4(mp4_path: str, output_path: str, password: str | None = None,
-                      message: str | None = None, in_file: str | None = None,
-                      image_path: str | None = None, mp3_path: str | None = None,
-                      compress: bool = False, comment: str | None = None,
-                      expires: str | None = None) -> None:
-    """Embed text/file data, image, or MP3 into an MP4 file using metadata with optional encryption."""
+def embed_data_in_mp4(
+    mp4_path: str,
+    output_path: str,
+    password: str | None = None,
+    message: str | None = None,
+    in_file: str | None = None,
+    image_path: str | None = None,
+    mp3_path: str | None = None,
+    compress: bool = False,
+    comment: str | None = None,
+    expires: str | None = None,
+) -> None:
+    """Store a versioned envelope in an MP4/M4A custom metadata atom."""
     load_mp4(mp4_path)
+    plaintext, flags = _payload_for_mp4(message, in_file, image_path, mp3_path)
+    stego_data, _flags, _salt, _nonce = build_stego_payload(
+        plaintext, flags, password, compress, comment, expires
+    )
+    ensure_metadata_capacity(stego_data)
 
-    # Determine payload type
-    payload_count = sum([message is not None, in_file is not None, image_path is not None, mp3_path is not None])
-    if payload_count == 0:
-        raise ValueError("Provide --message, --in-file, --image, or --mp3")
-    if payload_count > 1:
-        raise ValueError("Provide only one of: --message, --in-file, --image, or --mp3")
-
-    flags = 0
-    salt = b""
-    nonce = b""
-    plaintext = b""
-    metadata = b""  # Additional metadata after payload
-
-    if image_path:
-        # Handle image embedding
-        flags |= FLAG_PAYLOAD_IMAGE
-        image = load_image(image_path)
-
-        # Convert image to bytes
-        image_bytes = bytearray()
-        for pixel in image.getdata():
-            image_bytes.extend(pixel)
-        plaintext = bytes(image_bytes)
-
-        # Store image dimensions in metadata
-        metadata = image.size[0].to_bytes(4, byteorder="big") + image.size[1].to_bytes(4, byteorder="big")
-    elif mp3_path:
-        # Handle MP3 embedding
-        flags |= FLAG_PAYLOAD_MP3
-        load_mp3(mp3_path)
-        with open(mp3_path, "rb") as f:
-            plaintext = f.read()
-    else:
-        # Handle text/file embedding
-        flags |= FLAG_PAYLOAD_TEXT
-        if message:
-            plaintext = message.encode("utf-8")
-        else:
-            assert in_file is not None
-            with open(in_file, "rb") as f:
-                plaintext = f.read()
-
-    metadata_dict = None
-    if comment or expires:
-        metadata_dict = {"comment": comment or "", "expires": expires or ""}
-    plaintext, meta_flag = apply_metadata(plaintext, metadata_dict)
-    if meta_flag:
-        flags |= meta_flag
-
-    # Optional compression
-    if compress:
-        import zlib
-        plaintext = zlib.compress(plaintext)
-        flags |= FLAG_COMPRESSED
-
-    # Encrypt (optional)
-    payload_bytes = plaintext
-    if password:
-        flags |= FLAG_ENCRYPTED
-        salt = os.urandom(DEFAULT_SALT_LEN)
-        nonce = os.urandom(DEFAULT_NONCE_LEN)
-        key = derive_key(password, salt)
-        aad = build_aad(flags, salt, nonce)
-        payload_bytes = AESGCM(key).encrypt(nonce, plaintext, aad)
-
-    # Create header
-    header = StegoHeader(flags=flags, salt=salt, nonce=nonce, payload_len=len(payload_bytes)).to_bytes()
-    stego_data = header + payload_bytes + metadata
-
-    # Load or create MP4 metadata
     try:
         tags = MP4(mp4_path)
-    except:
+    except Exception:
         tags = MP4()
-
-    # Store embedded data in custom metadata atom
-    # MP4 uses base64-encoded strings for data storage (mutagen limitation)
-    stego_b64 = base64.b64encode(stego_data).decode('ascii')
-    tags["©stg"] = [stego_b64]
-
-    # Save to output file
-    shutil.copy(mp4_path, output_path)
+    tags["©stg"] = [base64.b64encode(stego_data).decode("ascii")]
+    shutil.copyfile(mp4_path, output_path)
     tags.save(output_path)
-
-    payload_type_map = {
-        FLAG_PAYLOAD_IMAGE: "image",
-        FLAG_PAYLOAD_TEXT: "text/file",
-        FLAG_PAYLOAD_MP3: "MP3 file"
-    }
-    payload_type = payload_type_map.get(flags & 0x38, "data")
-    logging.info("Embedded %s in MP4: %s", payload_type, output_path)
+    logging.info("Stored file data in visible MP4 metadata: %s", output_path)
 
 
-def extract_data_from_mp4(mp4_path: str, output_path: str, password: str | None = None) -> None:
-    """Extract text/file data, image, or MP3 from an MP4 file with optional decryption."""
+def extract_data_from_mp4(
+    mp4_path: str, output_path: str, password: str | None = None
+) -> None:
+    """Extract an envelope from an MP4/M4A metadata atom."""
     load_mp4(mp4_path)
-
     try:
         tags = MP4(mp4_path)
-    except:
-        raise ValueError("Could not read MP4 metadata")
-
-    # Extract stego data from custom metadata atom
-    if "©stg" not in tags:
-        raise ValueError("No embedded data found in MP4 file")
-
-    # Decode from base64 (mutagen stores as string)
-    stego_b64 = tags["©stg"][0]
-    stego_data = base64.b64decode(stego_b64)
-
-    # Parse header
-    cursor = 0
-
-    def read_bytes(num_bytes: int) -> bytes:
-        nonlocal cursor
-        data = stego_data[cursor:cursor + num_bytes]
-        cursor += num_bytes
-        return data
-
-    header_prefix = read_bytes(12)
-    salt_len = header_prefix[6]
-    nonce_len = header_prefix[7]
-
-    extra_header = b""
-    if salt_len + nonce_len > 0:
-        extra_header = read_bytes(salt_len + nonce_len)
-
-    header = parse_header(header_prefix + extra_header)
-
-    # Read payload
-    payload = read_bytes(header.payload_len)
-
-    # Decrypt if needed
-    if header.flags & FLAG_ENCRYPTED:
-        if not password:
-            raise ValueError("Password required to decrypt embedded data")
-        key = derive_key(password, header.salt)
-        aad = build_aad(header.flags, header.salt, header.nonce)
-        plaintext = AESGCM(key).decrypt(header.nonce, payload, aad)
-    else:
-        plaintext = payload
-
-    # Determine payload type and extract accordingly
-    if header.flags & FLAG_PAYLOAD_IMAGE:
-        # Extract image
-        img_width = int.from_bytes(read_bytes(4), byteorder="big")
-        img_height = int.from_bytes(read_bytes(4), byteorder="big")
-
-        # Reconstruct image
-        pixels = []
-        for i in range(0, len(plaintext), 3):
-            if i + 3 <= len(plaintext):
-                pixels.append(tuple(plaintext[i:i+3]))
-
-        image = Image.new("RGB", (img_width, img_height))
-        image.putdata(pixels)
-        image.save(output_path)
-        logging.info("Extracted image from MP4: %s", output_path)
-    elif header.flags & FLAG_PAYLOAD_MP3:
-        # Extract MP3
-        with open(output_path, "wb") as f:
-            f.write(plaintext)
-        logging.info("Extracted MP3 from MP4: %s", output_path)
-    else:
-        # Extract text/file
-        with open(output_path, "wb") as f:
-            f.write(plaintext)
-        logging.info("Extracted text/file from MP4: %s", output_path)
+    except Exception as exc:
+        raise ValueError("Could not read MP4 metadata") from exc
+    if "©stg" not in tags or not tags["©stg"]:
+        raise ValueError("No embedded data found in MP4 metadata")
+    stego_data = decode_stego_base64(tags["©stg"][0])
+    flags, plaintext, _metadata = parse_stego_payload(stego_data, password)
+    _write_extracted_payload(stego_data, flags, plaintext, output_path)
 
 
 def _write_tagged_audio(output_path: str, stego_b64: str) -> None:
-    """Write steganography data to audio file tags (WAV, FLAC, etc.)."""
+    """Write visible metadata to WAV/AAC ID3 tags or Mutagen comments."""
     ext = Path(output_path).suffix.lower()
-    if ext == ".wav":
+    if ext in {".wav", ".aac"}:
         try:
             tags = ID3(output_path)
         except Exception:
@@ -420,7 +240,7 @@ def _write_tagged_audio(output_path: str, stego_b64: str) -> None:
 
     audio = MutagenFile(output_path)
     if audio is None:
-        raise ValueError("Unsupported audio format for tagging")
+        raise ValueError(f"Unsupported audio format for visible metadata: {ext}")
     if audio.tags is None:
         audio.add_tags()
     audio["STEGO"] = [stego_b64]
@@ -428,32 +248,39 @@ def _write_tagged_audio(output_path: str, stego_b64: str) -> None:
 
 
 def _read_tagged_audio(path: str) -> str:
-    """Read steganography data from audio file tags."""
+    """Read the visible metadata value from tagged audio formats."""
     ext = Path(path).suffix.lower()
-    if ext == ".wav":
+    if ext in {".wav", ".aac"}:
         try:
             tags = ID3(path)
         except Exception as exc:
-            raise ValueError("No ID3 tags found in WAV file") from exc
+            raise ValueError(f"No ID3 metadata found in {ext[1:].upper()} file") from exc
         for frame in tags.getall("TXXX"):
             if frame.desc == "STEGO" and frame.text:
                 return frame.text[0]
-        raise ValueError("No embedded data found in WAV file")
+        raise ValueError(f"No embedded data found in {ext[1:].upper()} metadata")
 
     audio = MutagenFile(path)
     if audio is None or audio.tags is None:
-        raise ValueError("No embedded data found in audio file")
+        raise ValueError("No embedded data found in audio metadata")
     value = audio.tags.get("STEGO")
     if not value:
-        raise ValueError("No embedded data found in audio file")
+        raise ValueError("No embedded data found in audio metadata")
     return value[0]
 
 
-def embed_data_in_audio(audio_path: str, output_path: str, password: str | None = None,
-                        message: str | None = None, in_file: str | None = None,
-                        image_path: str | None = None, compress: bool = False,
-                        comment: str | None = None, expires: str | None = None) -> None:
-    """Embed data in audio file - dispatches to appropriate handler based on format."""
+def embed_data_in_audio(
+    audio_path: str,
+    output_path: str,
+    password: str | None = None,
+    message: str | None = None,
+    in_file: str | None = None,
+    image_path: str | None = None,
+    compress: bool = False,
+    comment: str | None = None,
+    expires: str | None = None,
+) -> None:
+    """Store file data in visible audio metadata supported by this container."""
     ext = Path(audio_path).suffix.lower()
     if ext == ".mp3":
         embed_data_in_mp3(
@@ -476,30 +303,31 @@ def embed_data_in_audio(audio_path: str, output_path: str, password: str | None 
             message=message,
             in_file=in_file,
             image_path=image_path,
-            mp3_path=None,
             compress=compress,
             comment=comment,
             expires=expires,
         )
         return
     if ext not in TAGGED_AUDIO_EXTS:
-        raise ValueError("Unsupported audio format")
-
-    if image_path:
-        raise ValueError("Image payloads are only supported for MP3/M4A/MOV containers")
+        raise ValueError("Unsupported audio format for visible metadata embedding")
+    if image_path is not None:
+        raise ValueError("Image attachments are supported only in MP3 and MP4-family metadata")
 
     payload = read_payload(message, in_file)
-    flags = FLAG_PAYLOAD_TEXT
-    stego_data, _flags, _salt, _nonce = build_stego_payload(payload, flags, password, compress, comment, expires)
+    stego_data, _flags, _salt, _nonce = build_stego_payload(
+        payload, FLAG_PAYLOAD_TEXT, password, compress, comment, expires
+    )
+    ensure_metadata_capacity(stego_data)
     stego_b64 = base64.b64encode(stego_data).decode("ascii")
-
-    shutil.copy(audio_path, output_path)
+    shutil.copyfile(audio_path, output_path)
     _write_tagged_audio(output_path, stego_b64)
-    logging.info("Embedded text/file in audio: %s", output_path)
+    logging.info("Stored file data in visible %s metadata: %s", ext[1:].upper(), output_path)
 
 
-def extract_data_from_audio(audio_path: str, output_path: str, password: str | None = None) -> None:
-    """Extract data from audio file - dispatches to appropriate handler based on format."""
+def extract_data_from_audio(
+    audio_path: str, output_path: str, password: str | None = None
+) -> None:
+    """Extract file data from visible metadata in supported audio formats."""
     ext = Path(audio_path).suffix.lower()
     if ext == ".mp3":
         extract_data_from_mp3(audio_path, output_path, password=password)
@@ -508,11 +336,8 @@ def extract_data_from_audio(audio_path: str, output_path: str, password: str | N
         extract_data_from_mp4(audio_path, output_path, password=password)
         return
     if ext not in TAGGED_AUDIO_EXTS:
-        raise ValueError("Unsupported audio format")
+        raise ValueError("Unsupported audio format for visible metadata extraction")
 
-    stego_b64 = _read_tagged_audio(audio_path)
-    stego_data = base64.b64decode(stego_b64)
-    _flags, plaintext, _meta = parse_stego_payload(stego_data, password)
-    with open(output_path, "wb") as f:
-        f.write(plaintext)
-    logging.info("Extracted text/file from audio: %s", output_path)
+    stego_data = decode_stego_base64(_read_tagged_audio(audio_path))
+    flags, plaintext, _metadata = parse_stego_payload(stego_data, password)
+    _write_extracted_payload(stego_data, flags, plaintext, output_path)

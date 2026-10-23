@@ -1,7 +1,6 @@
 """Tests for stego.core module."""
 
 import pytest
-from cryptography.exceptions import InvalidTag
 from stego.core import (
     FLAG_COMPRESSED,
     FLAG_ENCRYPTED,
@@ -81,7 +80,7 @@ class TestStegoHeader:
             with pytest.raises(ValueError):
                 parse_stego_payload(bytes(mutated), password="pw")
         else:
-            with pytest.raises((InvalidTag, ValueError)):
+            with pytest.raises(ValueError):
                 parse_stego_payload(bytes(mutated), password="pw")
 
     def test_legacy_v1_encrypted_payload_decodes_with_legacy_aad(self):
@@ -178,7 +177,7 @@ class TestPayloadOperations:
             payload, flags=0, password=password, compress=False, comment=None, expires=None
         )
 
-        with pytest.raises(InvalidTag):
+        with pytest.raises(ValueError, match="Password is incorrect"):
             parse_stego_payload(stego_data, password="wrong_password")
 
 

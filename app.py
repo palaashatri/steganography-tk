@@ -176,7 +176,10 @@ def build_parser() -> argparse.ArgumentParser:
     """Build argument parser for CLI."""
     parser = argparse.ArgumentParser(
         prog="stego",
-        description="LSB steganography with optional AES-GCM encryption"
+        description=(
+            "Image LSB steganography with optional AES-GCM; audio, video, and PDF "
+            "commands store visible metadata and do not hide it"
+        ),
     )
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
 
@@ -206,12 +209,19 @@ def build_parser() -> argparse.ArgumentParser:
     dec_img.set_defaults(func=decode_image)
 
     # Audio encode
-    enc_aud = subparsers.add_parser("audio-encode", help="Encode data into audio")
+    enc_aud = subparsers.add_parser(
+        "audio-encode",
+        help="Store data in visible audio metadata (not steganography; 1,000,000-byte encoded limit)",
+        description=(
+            "Store a payload in visible metadata tags, not steganography. Anyone inspecting "
+            "metadata can read the stored value. Encoded envelope limit: 1,000,000 bytes."
+        ),
+    )
     enc_aud.add_argument("--audio", required=True, help="Input audio path")
     enc_aud.add_argument("--out", required=True, help="Output stego audio path")
     enc_aud.add_argument("--message", help="Text message")
     enc_aud.add_argument("--in-file", help="File to hide")
-    enc_aud.add_argument("--image", help="Image to hide (MP3/M4A only)")
+    enc_aud.add_argument("--image", help="Original image file bytes for MP3 or MP4-family metadata")
     enc_aud.add_argument("--password", help="Encryption password")
     enc_aud.add_argument("--compress", action="store_true")
     enc_aud.add_argument("--comment", help="Metadata comment")
@@ -219,20 +229,30 @@ def build_parser() -> argparse.ArgumentParser:
     enc_aud.set_defaults(func=encode_audio)
 
     # Audio decode
-    dec_aud = subparsers.add_parser("audio-decode", help="Decode data from audio")
+    dec_aud = subparsers.add_parser(
+        "audio-decode", help="Extract a payload from visible audio metadata"
+    )
     dec_aud.add_argument("--audio", required=True, help="Stego audio path")
     dec_aud.add_argument("--out", required=True, help="Output path")
     dec_aud.add_argument("--password", help="Decryption password")
     dec_aud.set_defaults(func=decode_audio)
 
     # Video encode
-    enc_vid = subparsers.add_parser("video-encode", help="Encode data into video")
+    enc_vid = subparsers.add_parser(
+        "video-encode",
+        help="Store data in visible video metadata (not steganography; 1,000,000-byte encoded limit)",
+        description=(
+            "Store a payload in visible metadata tags/comments, not steganography. Anyone "
+            "inspecting metadata can read the stored value. Encoded envelope limit: "
+            "1,000,000 bytes."
+        ),
+    )
     enc_vid.add_argument("--video", required=True, help="Input video path")
     enc_vid.add_argument("--out", required=True, help="Output stego video path")
     enc_vid.add_argument("--message", help="Text message")
     enc_vid.add_argument("--in-file", help="File to hide")
-    enc_vid.add_argument("--image", help="Image to hide (MP4/MOV only)")
-    enc_vid.add_argument("--mp3", help="MP3 to hide (MP4/MOV only)")
+    enc_vid.add_argument("--image", help="Original image file bytes for MP4-family metadata")
+    enc_vid.add_argument("--mp3", help="Original MP3 file bytes for MP4-family metadata")
     enc_vid.add_argument("--password", help="Encryption password")
     enc_vid.add_argument("--compress", action="store_true")
     enc_vid.add_argument("--comment", help="Metadata comment")
@@ -240,14 +260,24 @@ def build_parser() -> argparse.ArgumentParser:
     enc_vid.set_defaults(func=encode_video)
 
     # Video decode
-    dec_vid = subparsers.add_parser("video-decode", help="Decode data from video")
+    dec_vid = subparsers.add_parser(
+        "video-decode", help="Extract a payload from visible video metadata"
+    )
     dec_vid.add_argument("--video", required=True, help="Stego video path")
     dec_vid.add_argument("--out", required=True, help="Output path")
     dec_vid.add_argument("--password", help="Decryption password")
     dec_vid.set_defaults(func=decode_video)
 
     # PDF encode
-    enc_pdf = subparsers.add_parser("pdf-encode", help="Encode data into PDF")
+    enc_pdf = subparsers.add_parser(
+        "pdf-encode",
+        help="Store data in visible PDF metadata (not steganography; 1,000,000-byte encoded limit)",
+        description=(
+            "Store a payload in visible metadata in PDF document properties, not steganography. Anyone "
+            "inspecting metadata can read the stored value. Encoded envelope limit: "
+            "1,000,000 bytes."
+        ),
+    )
     enc_pdf.add_argument("--pdf", required=True, help="Input PDF path")
     enc_pdf.add_argument("--out", required=True, help="Output stego PDF path")
     enc_pdf.add_argument("--message", help="Text message")
@@ -259,7 +289,9 @@ def build_parser() -> argparse.ArgumentParser:
     enc_pdf.set_defaults(func=encode_pdf)
 
     # PDF decode
-    dec_pdf = subparsers.add_parser("pdf-decode", help="Decode data from PDF")
+    dec_pdf = subparsers.add_parser(
+        "pdf-decode", help="Extract a payload from visible PDF metadata"
+    )
     dec_pdf.add_argument("--pdf", required=True, help="Stego PDF path")
     dec_pdf.add_argument("--out", required=True, help="Output path")
     dec_pdf.add_argument("--password", help="Decryption password")

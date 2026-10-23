@@ -1,169 +1,100 @@
 # Steganography Tool
 
 [![Tests](https://github.com/palaashatri/steganography-tk/actions/workflows/test.yml/badge.svg)](https://github.com/palaashatri/steganography-tk/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/palaashatri/steganography-tk/branch/main/graph/badge.svg)](https://codecov.io/gh/palaashatri/steganography-tk)
 
-A powerful LSB (Least Significant Bit) steganography tool with GUI and CLI interfaces, supporting multiple file formats with optional AES-GCM encryption.
+This project provides image LSB steganography and a desktop GUI. Its audio, video, and PDF commands store payloads in ordinary container metadata; those commands do **not** conceal that data and should not be described as steganography.
 
-## Features
+## What each mode does
 
-- **Multiple File Formats**: Images (PNG, JPG, GIF), Audio (MP3, MP4, WAV), Video (MP4, MKV, AVI), PDF
-- **LSB Methods**: Standard LSB, LSB-PRNG, LSB-Match-PRNG
-- **Encryption**: Optional AES-GCM encryption with password protection
-- **Compression**: Optional zlib compression for payloads
-- **Dual Interface**: Full-featured GUI and comprehensive CLI
-- **Cross-Platform**: Windows, macOS, Linux support
-- **Native Theming**: macOS aqua/darkAqua support
+### Image LSB mode
+
+The `encode` and `decode` commands store bytes in image pixel least-significant bits. Encoded image output is PNG so those bits survive saving. JPEG and GIF are not supported as output formats. Optional encryption uses AES-GCM with a fresh salt and nonce and PBKDF2-SHA256 (200,000 iterations).
+
+### Visible metadata modes
+
+Metadata is visible to tag and document inspection tools. Encryption protects the payload contents when a password is supplied, but the tag, comment, or PDF field remains present and detectable. Each metadata mode accepts a serialized envelope of at most **1,000,000 bytes**. The limit is checked before the carrier output is written; base64 storage adds overhead to the final container size.
+
+| Command | Supported carrier extensions | Metadata location |
+| --- | --- | --- |
+| `audio-encode` / `audio-decode` | `.mp3`, `.mp4`, `.m4a`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aac` | MP3 APIC frame, MP4-family atom, or audio metadata tag |
+| `video-encode` / `video-decode` | `.mp4`, `.m4a`, `.m4b`, `.m4p`, `.m4v`, `.mov`, `.mkv`, `.avi`, `.webm` | MP4-family atom or visible container comment |
+| `pdf-encode` / `pdf-decode` | `.pdf` | PDF document metadata field |
+
+MP3 and MP4-family metadata modes also accept image attachments; MP4-family video metadata supports `--image` and `--mp3` attachments. Attachments are stored as their original file bytes in new envelopes. Existing version 1 pixel-based image attachments remain decodable where their dimensions are present.
 
 ## Installation
-
-### From Source
 
 ```bash
 git clone https://github.com/palaashatri/steganography-tk.git
 cd steganography-tk
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-### Using Docker
-
-```bash
-docker build -t steganography .
-docker run -it steganography
-```
-
-### Pre-built Executables
-
-Download from [Releases](https://github.com/palaashatri/steganography-tk/releases)
-
-## Usage
-
-### GUI
+Run the GUI with:
 
 ```bash
 python gui/main.py
 ```
 
-### CLI
+## CLI examples
+
+Image LSB embedding writes a PNG carrier:
 
 ```bash
-# Encode message in image
-python app.py encode --image input.png --out output.png --message "Secret message"
-
-# Decode from image
-python app.py decode --image output.png
-
-# With encryption
-python app.py encode --image input.png --out output.png --message "Secret" --password mypass
-
-# Audio steganography
-python app.py audio-encode --audio input.mp3 --out output.mp3 --message "Hidden"
-
-# Generate QR code
-python app.py qr --text "https://example.com" --out qr.png
+python app.py encode --image cover.png --out stego.png --in-file secret.bin --password "choose-a-password"
+python app.py decode --image stego.png --out recovered.bin --password "choose-a-password"
 ```
 
-## Testing
-
-### Local Testing
+The following commands store **visible metadata**. Anyone who lists the carrier tags or document properties can see that a payload was stored.
 
 ```bash
-# Install test dependencies
-pip install pytest pytest-cov
+# Audio tags or metadata
+python app.py audio-encode --audio input.flac --out output.flac --in-file secret.bin --password "choose-a-password"
+python app.py audio-decode --audio output.flac --out recovered.bin --password "choose-a-password"
 
-# Run all tests
-pytest
+# Video container comment or metadata
+python app.py video-encode --video input.mkv --out output.mkv --message "Visible metadata payload"
+python app.py video-decode --video output.mkv --out recovered.bin
 
-# Run with coverage
-pytest --cov=. --cov-report=html
-
-# Run specific test file
-pytest tests/test_core.py
+# PDF document metadata
+python app.py pdf-encode --pdf input.pdf --out output.pdf --in-file secret.bin
+python app.py pdf-decode --pdf output.pdf --out recovered.bin
 ```
 
-### Docker Testing
+For MP3 or MP4-family carriers, `audio-encode` accepts `--image` to store an image file. For MP4-family carriers, `video-encode` accepts `--image` or `--mp3`. Those options preserve the attached file bytes inside the envelope; they do not embed image pixels in a video or audio stream.
+
+Use `python app.py --help` or a command's `--help` for all options. Metadata encode help states the visibility and 1,000,000-byte envelope limit.
+
+## Verification
+
+Run tests locally with:
 
 ```bash
-# Build and run tests
+python -m pip install pytest pytest-cov
+pytest -q
+```
+
+Run the Docker test image with:
+
+```bash
 docker build --target test -t stego-test .
 docker run --rm stego-test
 ```
 
-### CI/CD
+CI runs the test suite on Linux, macOS, and Windows. Windows and macOS downloadable packages are attached to published GitHub releases; this repository does not publish a release as part of normal branch verification.
 
-The project uses GitHub Actions for:
-- Automated testing on Linux, macOS, Windows
-- Code coverage reporting
-- Building executables for all platforms
-- Docker image publishing
+## Project structure
 
-## Project Structure
-
-```
+```text
 steganography-tk/
 ├── app.py              # CLI interface
-├── stego/              # Core steganography modules
-│   ├── core.py         # Headers, encryption, bit operations
-│   ├── image.py        # Image LSB operations
-│   ├── audio.py        # Audio metadata operations
-│   ├── video.py        # Video metadata operations
-│   ├── pdf.py          # PDF metadata operations
-│   └── utils.py        # Utilities (QR, decoders)
-├── gui/                # GUI interface
-│   └── main.py         # Tkinter GUI
-├── tests/              # Test suite
-│   ├── test_core.py
-│   ├── test_image.py
-│   ├── test_cli.py
-│   └── ...
-├── Dockerfile          # Multi-stage Docker build
-└── .github/workflows/  # CI/CD pipelines
-```
-
-## Development
-
-### Running Tests
-
-```bash
-# All tests
-pytest -v
-
-# Specific module
-pytest tests/test_core.py -v
-
-# With coverage
-pytest --cov=stego --cov=gui --cov=app --cov-report=html
-
-# Skip slow tests
-pytest -m "not slow"
-```
-
-### Building Executables
-
-```bash
-# Install PyInstaller
-pip install pyinstaller
-
-# Build CLI
-pyinstaller --onefile --name stego-cli app.py
-
-# Build GUI
-pyinstaller --onefile --windowed --name stego-gui gui/main.py
+├── stego/              # Core, image, audio, video, PDF, and utility operations
+├── gui/                # Tkinter interface
+├── tests/              # Automated tests
+├── Dockerfile          # Containerized verification and build stages
+└── .github/workflows/  # CI and release packaging
 ```
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new features
-4. Ensure all tests pass
-5. Submit a pull request
-
-## Authors
-
-- [@palaashatri](https://github.com/palaashatri)
+MIT License. See [LICENSE](LICENSE).
