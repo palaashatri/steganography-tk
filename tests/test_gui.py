@@ -625,11 +625,12 @@ def test_tcl_drop_normalization_and_callback_preserve_complex_paths(tk_root):
     from gui.main import handle_dnd_drop, normalize_dnd_files
 
     paths = [
-        r"C:\Users\Ada\Pictures\cover with braces {draft} ü.png",
-        "/tmp/payload with spaces {notes} 雪.bin",
+        r"C:\Users\Ada\Pictures\cover with unmatched }draft ü.png",
+        "/tmp/payload with unmatched {notes 雪.bin",
     ]
     event_data = tk_root.tk.call("list", *paths)
-    string_event_data = " ".join(f"{{{path}}}" for path in paths)
+    tk_root.tk.call("set", "::drop_test_data", event_data)
+    string_event_data = tk_root.tk.eval("set ::drop_test_data")
     variable = tk.StringVar(master=tk_root)
 
     assert normalize_dnd_files(event_data, tk_root) == paths
