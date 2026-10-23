@@ -1,6 +1,7 @@
 """Tests for lossless video-frame embedding."""
 
 from argparse import Namespace
+from pathlib import Path
 
 import imageio.v2 as imageio
 import numpy as np
@@ -78,3 +79,39 @@ def test_frame_embedding_rejects_overwriting_input_video(temp_dir):
 
     with pytest.raises(ValueError, match="paths must differ"):
         embed_data_in_video_frame(str(source), str(source), 0, message="payload")
+
+
+def test_writer_failure_preserves_destination_and_cleans_temporary_output(
+    temp_dir, monkeypatch
+):
+    source = temp_dir / "source.mkv"
+    output = temp_dir / "stego.mkv"
+    previous_output = b"existing destination contents"
+    output.write_bytes(previous_output)
+    make_ffv1_video(source, frame_count=1)
+    existing_files = {path.name for path in temp_dir.iterdir()}
+    writer_paths = []
+
+    class FailingWriter:
+        def __init__(self, path):
+            self.path = path
+            Path(path).write_bytes(b"partial FFmpeg output")
+
+        def append_data(self, frame):
+            raise RuntimeError("injected append failure")
+
+        def close(self):
+            pass
+
+    def get_failing_writer(path, **kwargs):
+        writer_paths.append(Path(path))
+        return FailingWriter(path)
+
+    monkeypatch.setattr(imageio, "get_writer", get_failing_writer)
+
+    with pytest.raises(RuntimeError, match="injected append failure"):
+        embed_data_in_video_frame(str(source), str(output), 0, message="payload")
+
+    assert output.read_bytes() == previous_output
+    assert writer_paths and writer_paths[0] != output
+    assert {path.name for path in temp_dir.iterdir()} == existing_files

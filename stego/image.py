@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 from PIL import Image
 import imageio.v2 as imageio
@@ -124,30 +126,48 @@ def embed_data_in_video_frame(video_path: str, output_path: str, frame_index: in
     finally:
         probe.close()
 
-    reader = imageio.get_reader(video_path)
-    writer = None
+    temporary_output = None
     try:
-        writer = imageio.get_writer(
-            output_path,
-            fps=fps,
-            codec="ffv1",
-            pixelformat="bgr0",
-            macro_block_size=1,
-            format="FFMPEG",
+        output = Path(output_path)
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{output.stem}.", suffix=output.suffix, dir=output.parent
         )
-        for idx, frame in enumerate(reader):
-            if idx == frame_index:
-                pil = Image.fromarray(frame).convert("RGB")
-                frame = np.asarray(
-                    embed_stego_data_in_image(pil, stego_data, method, prng_key)
-                )
-            else:
-                frame = np.asarray(Image.fromarray(frame).convert("RGB"))
-            writer.append_data(frame)
-    finally:
-        reader.close()
-        if writer is not None:
-            writer.close()
+        temporary_output = Path(temporary_name)
+        os.close(fd)
+
+        reader = imageio.get_reader(video_path)
+        try:
+            writer = imageio.get_writer(
+                str(temporary_output),
+                fps=fps,
+                codec="ffv1",
+                pixelformat="bgr0",
+                macro_block_size=1,
+                format="FFMPEG",
+            )
+            try:
+                for idx, frame in enumerate(reader):
+                    if idx == frame_index:
+                        pil = Image.fromarray(frame).convert("RGB")
+                        frame = np.asarray(
+                            embed_stego_data_in_image(pil, stego_data, method, prng_key)
+                        )
+                    else:
+                        frame = np.asarray(Image.fromarray(frame).convert("RGB"))
+                    writer.append_data(frame)
+            finally:
+                writer.close()
+        finally:
+            reader.close()
+
+        os.replace(temporary_output, output)
+    except BaseException:
+        if temporary_output is not None:
+            try:
+                temporary_output.unlink()
+            except FileNotFoundError:
+                pass
+        raise
 
 
 def extract_data_from_video_frame(video_path: str, frame_index: int, password: str | None = None,
