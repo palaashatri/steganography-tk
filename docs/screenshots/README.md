@@ -6,8 +6,7 @@ This gallery documents the desktop application's visible workflows and utility p
 
 ### Image LSB
 
-<details>
-<summary>Image encode form and successful encode/decode</summary>
+#### Image encode form and successful encode/decode
 
 ![Image encode form](hide-data-image-mode.jpg)
 
@@ -17,14 +16,11 @@ This gallery documents the desktop application's visible workflows and utility p
 
 ![Image decode completed](image-decode-complete.jpg)
 
-</details>
-
 ### Audio metadata
 
 Audio payloads are stored in visible metadata tags; these screens demonstrate the metadata workflow, not hidden audio samples.
 
-<details>
-<summary>Audio metadata form, encode, reveal, and completed round trip</summary>
+#### Audio metadata form, encode, reveal, and completed round trip
 
 ![Audio metadata encode form](hide-data-audio-mode.jpg)
 
@@ -34,14 +30,11 @@ Audio payloads are stored in visible metadata tags; these screens demonstrate th
 
 ![Audio metadata extraction completed](reveal-data-audio-round-trip.jpg)
 
-</details>
-
 ### Video metadata
 
 Video payloads in this mode are stored in visible container metadata. Use Video-frame LSB mode for pixel embedding.
 
-<details>
-<summary>Video metadata form, encode, reveal, and completed round trip</summary>
+#### Video metadata form, encode, reveal, and completed round trip
 
 ![Video metadata encode form](hide-data-video-mode.jpg)
 
@@ -51,12 +44,9 @@ Video payloads in this mode are stored in visible container metadata. Use Video-
 
 ![Video metadata extraction completed](reveal-data-video-round-trip.jpg)
 
-</details>
-
 ### PDF metadata
 
-<details>
-<summary>PDF metadata encode, reveal, and extraction</summary>
+#### PDF metadata encode, reveal, and extraction
 
 ![PDF metadata encode form](hide-data-pdf-mode.jpg)
 
@@ -66,12 +56,9 @@ Video payloads in this mode are stored in visible container metadata. Use Video-
 
 ![PDF extraction completed](pdf-extract-complete.jpg)
 
-</details>
-
 ## Advanced video-frame LSB
 
-<details>
-<summary>Video-frame controls, successful embedding, and extraction</summary>
+#### Video-frame controls, successful embedding, and extraction
 
 ![Advanced video-frame controls](advanced-video-frames.jpg)
 
@@ -79,20 +66,15 @@ Video payloads in this mode are stored in visible container metadata. Use Video-
 
 ![Video-frame extraction completed](video-frame-extract-complete.jpg)
 
-</details>
-
 ## Batch image operations
 
-<details>
-<summary>Batch image forms and completed encode/decode</summary>
+#### Batch image forms and completed encode/decode
 
 ![Batch image operation forms](batch-operations.jpg)
 
 ![Batch image encode completed](batch-encode-complete.jpg)
 
 ![Batch image decode completed](batch-decode-complete.jpg)
-
-</details>
 
 ## Analysis
 
@@ -104,24 +86,17 @@ The analysis view demonstrates image comparison, stego detection, and the securi
 
 The overview captures show the full tools panel: capacity calculator, key vault, templates, QR generator, portable decoder, Windows file association export, metadata viewer, SHA-256, file browser, and Gallery Builder.
 
-<details>
-<summary>Tools panel overview</summary>
+#### Tools panel overview
 
 ![Tools panel top](tools-overview-top.jpg)
 
 ![Full Tools panel](tools-overview-full.jpg)
 
-</details>
-
-<details>
-<summary>Capacity calculator result</summary>
+#### Capacity calculator result
 
 ![Image capacity calculated from a selected carrier](tools-capacity-calculated.jpg)
 
-</details>
-
-<details>
-<summary>Key vault and templates</summary>
+#### Key vault and templates
 
 ![Key vault save confirmation](tools-key-vault-saved.jpg)
 
@@ -129,19 +104,13 @@ The overview captures show the full tools panel: capacity calculator, key vault,
 
 ![Template load confirmation](tools-template-loaded.jpg)
 
-</details>
-
-<details>
-<summary>QR code generation and preview</summary>
+#### QR code generation and preview
 
 ![QR generator with generated output](tools-qr-generated.jpg)
 
 ![Generated QR opened in the app preview](open-generated-qr-preview.jpg)
 
-</details>
-
-<details>
-<summary>Portable decoder and Windows file association</summary>
+#### Portable decoder and Windows file association
 
 ![Portable decoder ZIP created successfully](tools-portable-decoder-created.jpg)
 
@@ -149,10 +118,7 @@ The overview captures show the full tools panel: capacity calculator, key vault,
 
 ![Windows file association export completed](tools-file-association-created.jpg)
 
-</details>
-
-<details>
-<summary>Metadata viewer, SHA-256, file browser, and Gallery Builder</summary>
+#### Metadata viewer, SHA-256, file browser, and Gallery Builder
 
 ![Metadata viewer result](tools-metadata-viewer.jpg)
 
@@ -164,27 +130,19 @@ The overview captures show the full tools panel: capacity calculator, key vault,
 
 ![Gallery ZIP creation confirmation](tools-gallery-created.jpg)
 
-</details>
-
 ## History, settings, and help
 
-<details>
-<summary>History rows with successful operations</summary>
+#### History rows with successful operations
 
 ![History image decode success](history-image-decode-success.jpg)
 
 ![History audio encode success](history-audio-encode-success.jpg)
 
-</details>
-
-<details>
-<summary>Settings dialogs</summary>
+#### Settings dialogs
 
 ![General settings](settings-general.jpg)
 
 ![Appearance settings](settings-appearance.jpg)
-
-</details>
 
 ![Help dialog](help-dialog.jpg)
 
