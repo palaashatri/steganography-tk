@@ -1,0 +1,10 @@
+__pycache__
+bin
+include
+lib
+share
+.venv/
+venv/
+pyvenv.cfg
+stego.*
+test_op.jpg

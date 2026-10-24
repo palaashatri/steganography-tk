@@ -1,228 +1,121 @@
-# Steganography Suite built with Python 3 PyTk
+# Steganography Tool
 
-<img width="1842" height="1376" alt="image" src="https://github.com/user-attachments/assets/483c80c4-fa38-4839-b4d1-ebf94ff58659" />
+[![Tests](https://github.com/palaashatri/steganography-tk/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/palaashatri/steganography-tk/actions/workflows/ci-cd.yml)
 
+This project provides image and video-frame LSB steganography plus a desktop GUI. The `audio-*`, `video-encode`/`video-decode`, and `pdf-*` commands store payloads in ordinary container metadata; those commands do **not** conceal that data and should not be described as steganography.
 
-Complete CLI tool for steganography with multiple embedding methods:
-- **LSB Image Steganography**: Hide text/files in images using Least Significant Bit techniques
-- **MP3 Audio Steganography**: Hide text/files/images in MP3 files using ID3 tags
+## What each mode does
 
-All methods support optional AES-256-GCM encryption with password protection.
+### Image LSB mode
 
+The `encode` and `decode` commands store bytes in image pixel least-significant bits. Encoded image output is PNG so those bits survive saving. JPEG and GIF are not supported as output formats. Optional encryption uses AES-GCM with a fresh salt and nonce and PBKDF2-SHA256 (200,000 iterations). New `lsb-prng` and `lsb-match-prng` images use a version 3 envelope and an incremental keyed permutation; the decoder still supports version 1 and 2 images. LSB and version 3 PRNG decoding read only the declared envelope; legacy version 1 and 2 PRNG decoding reconstructs the historical full-channel permutation to preserve compatibility, with a safety limit of 33,554,432 channel positions. Larger legacy PRNG carriers are refused; version 3 PRNG images do not use that legacy allocation path. When compression is enabled, plaintext plus metadata is limited to 64 MiB, and decoding enforces the same expansion limit.
 
-> **Status (2026-10-20):** on this branch the **GUI does not work** — `gui.py` still launches `python3 1_Implementation/app.py`, a folder that no longer exists. Use the command-line tool (`python3 app.py …`) for now. MP3 and MP4 modes store the payload in the file's metadata tags; anyone who lists the tags can see it, so treat them as hidden-in-container rather than steganography, and use `--password` if the content matters. MP4 extraction currently fails on the test fixtures. The `uiuximprov` branch fixes most of this and adds tests; it has not been merged yet.
+### Video-frame LSB mode
 
-## Roadmap
+`video-frame-encode` and `video-frame-decode` store bytes in the selected frame's pixel least-significant bits. Write to a lossless MKV output so the embedded bits survive encoding; lossy video output is not supported. Source audio streams are copied to the output. Unlike `video-encode`/`video-decode`, this mode changes frame pixels rather than adding visible metadata.
 
-In priority order — each is something a user would notice:
+### Visible metadata modes
 
-1. **A working GUI** — merge `uiuximprov` (package split, GUI rewrite, tests, CI on three OSes).
-2. **Honest modes in the UI:** label image LSB as steganography and MP3/MP4 as metadata embedding, and warn when output would be saved in a lossy format that destroys hidden data.
-3. **Capacity meter:** show how many bytes a chosen cover image can hold before encoding.
-4. **Drag and drop** cover files and payloads into the window.
-5. **Detection self-check:** after encoding, run a basic statistical test (for example chi-square on LSBs) and tell the user how detectable the result is.
-6. **Single-file downloads** for Windows and macOS so users don't need Python.
+Metadata is visible to tag and document inspection tools. Encryption protects the payload contents when a password is supplied, but the tag, comment, or PDF field remains present and detectable. Each metadata mode accepts a serialized envelope of at most **1,000,000 bytes**. The limit is checked before the carrier output is written; base64 storage adds overhead to the final container size.
 
-## Setup
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+| Command | Supported carrier extensions | Metadata location |
+| --- | --- | --- |
+| `audio-encode` / `audio-decode` | `.mp3`, `.mp4`, `.m4a`, `.m4b`, `.m4p`, `.m4v`, `.mov`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aac` | MP3 APIC frame, MP4-family atom, or audio metadata tag |
+| `video-encode` / `video-decode` | `.mp4`, `.m4a`, `.m4b`, `.m4p`, `.m4v`, `.mov`, `.mkv`, `.avi`, `.webm` | MP4-family atom or visible container comment |
+| `pdf-encode` / `pdf-decode` | `.pdf` | PDF document metadata field |
 
-## Features
+MP3 and MP4-family metadata modes also accept image attachments; MP4-family video metadata supports `--image` and `--mp3` attachments. Attachments are stored as their original file bytes in new envelopes. Existing version 1 pixel-based image attachments remain decodable where their dimensions are present.
 
-### Image Steganography (LSB)
-- **lsb:** Basic sequential LSB substitution
-- **lsb-prng:** Pixels selected via PRNG permutation using `--prng-key`
-- **lsb-match-prng:** LSB matching (±1) with PRNG permutation
-- Optional AES-256-GCM encryption
-
-### MP3 Steganography (ID3 Tags)
-- Embed text messages, files, or images in MP3 files
-- Automatic payload type detection on extraction
-- Optional AES-256-GCM encryption
-- Preserves audio quality and playback
-
-**Note:** Use lossless image formats (PNG) for outputs; JPEG recompression will destroy hidden data.
-
-## Usage
-
-### Graphical User Interface (GUI)
-
-Launch the GUI application with a user-friendly interface:
-```bash
-python3 gui.py
-```
-
-The GUI provides:
-- **Tabbed Interface**: Separate tabs for Image, MP3, and MP4 encode/decode operations
-- **File Browsing**: Easy file selection with native file dialogs
-- **Visual Feedback**: Status bar showing operation progress and results
-- **Data Extraction Display**: Built-in text viewer for extracted content
-- **Password Protection**: Simple password entry for encrypted operations
-
-**Features:**
-- Image steganography (LSB) with text/file/image embedding
-- MP3 audio steganography with auto-detection of payload types
-- MP4 video steganography with comprehensive data embedding
-- Optional encryption/decryption with passwords
-- Real-time status updates and error messages
-- Clear and intuitive workflow for each media type
-
-### Image Steganography
-
-**Encode text into image (basic LSB):**
-```bash
-python3 app.py encode --image cover.png --out secret.png --message "hello world"
-```
-
-**Encode with PRNG permutation:**
-```bash
-python3 app.py encode --image cover.png --out secret.png --message "hello world" --method lsb-prng --prng-key "my-key"
-```
-
-**Encode with LSB matching + PRNG:**
-```bash
-python3 app.py encode --image cover.png --out secret.png --message "hello world" --method lsb-match-prng --prng-key "my-key"
-```
-
-**Encode file with encryption:**
-```bash
-python3 app.py encode --image cover.png --out secret.png --in-file notes.txt --password "strong passphrase"
-```
-
-**Decode from image:**
-```bash
-python3 app.py decode --image secret.png --method lsb
-```
-
-**Decode encrypted image to file:**
-```bash
-python3 app.py decode --image secret.png --out extracted.txt --password "strong passphrase"
-```
-
-### MP3 Steganography
-
-**Embed text message in MP3:**
-```bash
-python3 app.py mp3-encode --mp3 song.mp3 --out output.mp3 --message "Secret message"
-```
-
-**Embed text with encryption:**
-```bash
-python3 app.py mp3-encode --mp3 song.mp3 --out output.mp3 --message "Secret message" --password "secure_key"
-```
-
-**Embed file in MP3:**
-```bash
-python3 app.py mp3-encode --mp3 song.mp3 --out output.mp3 --in-file secret.zip
-```
-
-**Embed image in MP3:**
-```bash
-python3 app.py mp3-encode --mp3 song.mp3 --out output.mp3 --image secret.png
-```
-
-**Extract from MP3 (auto-detects type):**
-```bash
-python3 app.py mp3-decode --mp3 output.mp3 --out extracted_data
-```
-
-**Extract encrypted MP3:**
-```bash
-python3 app.py mp3-decode --mp3 output.mp3 --out extracted_data --password "secure_key"
-```
-
-### MP4 Steganography
-
-**Embed text message in MP4:**
-```bash
-python3 app.py mp4-encode --mp4 video.mp4 --out output.mp4 --message "Secret message"
-```
-
-**Embed text with encryption:**
-```bash
-python3 app.py mp4-encode --mp4 video.mp4 --out output.mp4 --message "Secret message" --password "secure_key"
-```
-
-**Embed image in MP4:**
-```bash
-python3 app.py mp4-encode --mp4 video.mp4 --out output.mp4 --image secret.png
-```
-
-**Embed MP3 in MP4:**
-```bash
-python3 app.py mp4-encode --mp4 video.mp4 --out output.mp4 --mp3 audio.mp3
-```
-
-**Extract from MP4 (auto-detects type):**
-```bash
-python3 app.py mp4-decode --mp4 output.mp4 --out extracted_data
-```
-
-**Extract encrypted MP4:**
-```bash
-python3 app.py mp4-decode --mp4 output.mp4 --out extracted_data --password "secure_key"
-```
-
-## Complete Example Workflow
+## Installation
 
 ```bash
-# 1. Hide text in image using LSB
-python3 app.py encode --image cover.png --out image_with_text.png --message "Secret message"
-
-# 2. Hide the image file in MP3
-python3 app.py mp3-encode --mp3 song.mp3 --out song_with_image.mp3 --image image_with_text.png
-
-# 3. Extract image from MP3
-python3 app.py mp3-decode --mp3 song_with_image.mp3 --out recovered_image.png
-
-# 4. Extract text from recovered image
-python3 app.py decode --image recovered_image.png --out final_message.txt
+git clone https://github.com/palaashatri/steganography-tk.git
+cd steganography-tk
+python -m pip install -r requirements.txt
 ```
 
-## Testing
+Run the GUI with:
 
-Run the comprehensive test suite:
 ```bash
-python3 test_suite.py
+python gui/main.py
 ```
 
-This validates all functionality including:
-- LSB image steganography
-- LSB with encryption
-- MP3 text embedding
-- MP3 image embedding
-- MP3 file embedding
-- MP3 encrypted embedding
-- MP4 text embedding
-- MP4 image embedding
-- MP4 MP3 embedding
-- MP4 encrypted embedding
+On Unix-like systems, `./run.sh` creates the local environment and runs a temporary PNG round-trip demo. Pass CLI arguments to use the script as a convenience launcher.
 
-**Expected Result:** 10/10 tests passed
+## CLI examples
 
-Decode (PRNG-based):
+Image LSB embedding writes a PNG carrier:
+
 ```bash
-python 1_Implementation/app.py decode --image secret.png --method lsb-prng --prng-key "my-key"
-# or for LSB matching
-python 1_Implementation/app.py decode --image secret.png --method lsb-match-prng --prng-key "my-key"
+python app.py encode --image cover.png --out stego.png --in-file secret.bin
+python app.py decode --image stego.png --out recovered.bin
 ```
 
-Decode to a file:
+For encryption, avoid putting passwords in `--password`: command arguments can appear in process listings and shell history. `--credentials-stdin` reads a JSON object from standard input. This example prompts for the password without placing it in the command line:
+
 ```bash
-python 1_Implementation/app.py decode --image secret.png --out recovered.bin --method lsb
+python -c 'import getpass, json, sys; json.dump({"password": getpass.getpass("Password: ")}, sys.stdout)' | python app.py encode --image cover.png --out stego.png --in-file secret.bin --credentials-stdin
 ```
 
-Add `--verbose` to see debug logging.
+The following commands store **visible metadata**. Anyone who lists the carrier tags or document properties can see that a payload was stored.
 
-## Run script (macOS)
 ```bash
-./run.sh encode --image cover.png --out secret.png --message "hi" --method lsb
-./run.sh decode --image secret.png --method lsb
+# Audio tags or metadata
+python app.py audio-encode --audio input.flac --out output.flac --in-file secret.bin
+python app.py audio-decode --audio output.flac --out recovered.bin
+
+# Video container comment or metadata
+python app.py video-encode --video input.mkv --out output.mkv --message "Visible metadata payload"
+python app.py video-decode --video output.mkv --out recovered.bin
+
+# PDF document metadata
+python app.py pdf-encode --pdf input.pdf --out output.pdf --in-file secret.bin
+python app.py pdf-decode --pdf output.pdf --out recovered.bin
 ```
 
-## Resources
-* Steganography - [Wikipedia](https://en.wikipedia.org/wiki/Steganography)
-* Python Image Library (Pillow) - [Website](https://python-pillow.org/)
+Video-frame LSB mode embeds in one chosen frame and writes a lossless MKV:
+
+```bash
+python app.py video-frame-encode --video input.mkv --out stego.mkv --frame 0 --in-file secret.bin
+python app.py video-frame-decode --video stego.mkv --frame 0 --out recovered.bin
+```
+
+For MP3 or MP4-family carriers, `audio-encode` accepts `--image` to store an image file. For MP4-family carriers, `video-encode` accepts `--image` or `--mp3`. Those options preserve the attached file bytes inside the envelope; they do not embed image pixels in a video or audio stream.
+
+Use `python app.py --help` or a command's `--help` for all options. Metadata encode help states the visibility and 1,000,000-byte envelope limit.
+
+## Verification
+
+Run tests locally with:
+
+```bash
+python -m pip install pytest pytest-cov
+pytest -q
+```
+
+Audio and video test fixtures use the FFmpeg binary bundled by `imageio-ffmpeg`; you do not need a separate system FFmpeg installation to run the tests.
+
+Run the Docker test image with:
+
+```bash
+docker build --target test -t stego-test .
+docker run --rm stego-test
+```
+
+The [CI workflow](https://github.com/palaashatri/steganography-tk/actions/workflows/ci-cd.yml) runs source tests on Linux, macOS, and Windows, and builds and runs the Docker test image. The Docker verification commands above use the same test suite. [Windows and macOS downloadable packages are attached to published GitHub releases](https://github.com/palaashatri/steganography-tk/releases); this repository does not publish a release as part of normal branch verification.
+
+## Project structure
+
+```text
+steganography-tk/
+├── app.py              # CLI interface
+├── stego/              # Core, image, audio, video, PDF, and utility operations
+├── gui/                # Tkinter interface
+├── tests/              # Automated tests
+├── Dockerfile          # Containerized verification and build stages
+└── .github/workflows/  # CI and release packaging
+```
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
