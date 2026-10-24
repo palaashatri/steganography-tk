@@ -58,7 +58,7 @@ Video payloads in this mode are stored in visible container metadata. Use Video-
 
 ## Advanced video-frame LSB
 
-#### Video-frame controls, successful embedding, and extraction
+### Video-frame controls, successful embedding, and extraction
 
 ![Advanced video-frame controls](advanced-video-frames.jpg)
 
@@ -68,7 +68,7 @@ Video payloads in this mode are stored in visible container metadata. Use Video-
 
 ## Batch image operations
 
-#### Batch image forms and completed encode/decode
+### Batch image forms and completed encode/decode
 
 ![Batch image operation forms](batch-operations.jpg)
 
@@ -86,17 +86,17 @@ The analysis view demonstrates image comparison, stego detection, and the securi
 
 The overview captures show the full tools panel: capacity calculator, key vault, templates, QR generator, portable decoder, Windows file association export, metadata viewer, SHA-256, file browser, and Gallery Builder.
 
-#### Tools panel overview
+### Tools panel overview
 
 ![Tools panel top](tools-overview-top.jpg)
 
 ![Full Tools panel](tools-overview-full.jpg)
 
-#### Capacity calculator result
+### Capacity calculator result
 
 ![Image capacity calculated from a selected carrier](tools-capacity-calculated.jpg)
 
-#### Key vault and templates
+### Key vault and templates
 
 ![Key vault save confirmation](tools-key-vault-saved.jpg)
 
@@ -104,13 +104,13 @@ The overview captures show the full tools panel: capacity calculator, key vault,
 
 ![Template load confirmation](tools-template-loaded.jpg)
 
-#### QR code generation and preview
+### QR code generation and preview
 
 ![QR generator with generated output](tools-qr-generated.jpg)
 
 ![Generated QR opened in the app preview](open-generated-qr-preview.jpg)
 
-#### Portable decoder and Windows file association
+### Portable decoder and Windows file association
 
 ![Portable decoder ZIP created successfully](tools-portable-decoder-created.jpg)
 
@@ -118,7 +118,7 @@ The overview captures show the full tools panel: capacity calculator, key vault,
 
 ![Windows file association export completed](tools-file-association-created.jpg)
 
-#### Metadata viewer, SHA-256, file browser, and Gallery Builder
+### Metadata viewer, SHA-256, file browser, and Gallery Builder
 
 ![Metadata viewer result](tools-metadata-viewer.jpg)
 
@@ -132,17 +132,19 @@ The overview captures show the full tools panel: capacity calculator, key vault,
 
 ## History, settings, and help
 
-#### History rows with successful operations
+### History rows with successful operations
 
 ![History image decode success](history-image-decode-success.jpg)
 
 ![History audio encode success](history-audio-encode-success.jpg)
 
-#### Settings dialogs
+### Settings dialogs
 
 ![General settings](settings-general.jpg)
 
 ![Appearance settings](settings-appearance.jpg)
+
+### Help dialog
 
 ![Help dialog](help-dialog.jpg)
 
