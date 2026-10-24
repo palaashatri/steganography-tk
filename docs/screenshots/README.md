@@ -24,11 +24,11 @@ Audio payloads are stored in visible metadata tags; these screens demonstrate th
 
 ![Audio metadata encode form](hide-data-audio-mode.jpg)
 
-![Audio metadata encode completed](audio-metadata-encode-complete.jpg)
+![Audio metadata encode form with output path populated](audio-metadata-encode-complete.jpg)
 
 ![Audio metadata reveal form](reveal-data-audio-mode.jpg)
 
-![Audio metadata extraction completed](reveal-data-audio-round-trip.jpg)
+![Audio metadata extraction form with decoded output path](reveal-data-audio-round-trip.jpg)
 
 ### Video metadata
 
@@ -38,11 +38,11 @@ Video payloads in this mode are stored in visible container metadata. Use Video-
 
 ![Video metadata encode form](hide-data-video-mode.jpg)
 
-![Video metadata encode completed](video-metadata-encode-complete.jpg)
+![Video metadata encode form with output path populated](video-metadata-encode-complete.jpg)
 
 ![Video metadata reveal form](reveal-data-video-mode.jpg)
 
-![Video metadata extraction completed](reveal-data-video-round-trip.jpg)
+![Video metadata extraction form with decoded output path](reveal-data-video-round-trip.jpg)
 
 ### PDF metadata
 
@@ -50,7 +50,7 @@ Video payloads in this mode are stored in visible container metadata. Use Video-
 
 ![PDF metadata encode form](hide-data-pdf-mode.jpg)
 
-![PDF metadata encode completed](pdf-metadata-encode-complete.jpg)
+![PDF metadata encode form with generated output path](pdf-metadata-encode-complete.jpg)
 
 ![PDF metadata reveal form](reveal-data-pdf-mode.jpg)
 
@@ -62,7 +62,7 @@ Video payloads in this mode are stored in visible container metadata. Use Video-
 
 ![Advanced video-frame controls](advanced-video-frames.jpg)
 
-![Video-frame embedding completed](video-frame-encode-complete.jpg)
+![Video-frame form with generated MKV output path](video-frame-encode-complete.jpg)
 
 ![Video-frame extraction completed](video-frame-extract-complete.jpg)
 
@@ -150,6 +150,7 @@ The overview captures show the full tools panel: capacity calculator, key vault,
 
 - Audio and video metadata modes, and PDF metadata mode, make payload presence visible to metadata inspection tools. Encryption protects payload contents, not the existence of the metadata field.
 - Captures use temporary demo files and paths. The visible sample messages are demonstration data, and `coastline-2026` is a demo PRNG key, not a recommended secret.
+- All images originate from direct GUI captures. Tall captures are cropped to the relevant controls or results to remove unused window canvas; no controls or results have been altered.
 - A still image can show the selected file and resulting preview, but it cannot prove the drag-and-drop gesture itself.
 - Clipboard Paste and Key Vault Load are shown as available controls but were not activated: Paste reads the system clipboard, while Key Vault Load writes the decrypted key to it.
 - The Gallery Builder setup image shows the selected image list and destination ZIP path; the separate confirmation image records successful ZIP creation. The portable decoder image likewise shows its completed ZIP action.
