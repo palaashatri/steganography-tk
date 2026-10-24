@@ -42,6 +42,12 @@ python gui/main.py
 
 On Unix-like systems, `./run.sh` creates the local environment and runs a temporary PNG round-trip demo. Pass CLI arguments to use the script as a convenience launcher.
 
+## GUI screenshots
+
+The [complete GUI screenshot gallery](docs/screenshots/README.md) covers the carrier modes, analysis, batch operations, shared tools, settings, help, and successful workflows.
+
+![Image LSB encoding form](docs/screenshots/hide-data-image-mode.jpg)
+
 ## CLI examples
 
 Image LSB embedding writes a PNG carrier:

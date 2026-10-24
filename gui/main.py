@@ -2612,6 +2612,23 @@ def gui_main() -> None:
                 ),
             ).pack(anchor=tk.W, padx=10, pady=(0, 10))
 
+        def _pack_metadata_storage_notice(
+            self, parent: ttk.Frame, media_type: str
+        ) -> None:
+            label = ttk.Label(
+                parent,
+                text=metadata_storage_notice(media_type),
+                justify=tk.LEFT,
+            )
+            label.pack(anchor=tk.W, fill=tk.X, padx=10, pady=(8, 0))
+            label.bind(
+                "<Configure>",
+                lambda event: event.widget.configure(
+                    wraplength=max(1, event.width)
+                ),
+                add="+",
+            )
+
         def _build_pdf_tab(self, parent: ttk.Frame) -> None:
             container = ttk.Frame(parent)
             container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
@@ -2636,12 +2653,7 @@ def gui_main() -> None:
                 filetypes=[("PDF", "*.pdf")],
                 on_change=self._update_pdf_preview,
             )
-            ttk.Label(
-                encode,
-                text=metadata_storage_notice("PDF"),
-                wraplength=900,
-                justify=tk.LEFT,
-            ).pack(anchor=tk.W, padx=10, pady=(8, 0))
+            self._pack_metadata_storage_notice(encode, "PDF")
             ttk.Label(encode, text="Message").pack(anchor=tk.W, padx=10)
             ttk.Entry(encode, textvariable=msg_var).pack(
                 fill=tk.X, padx=10, pady=(0, 8)
@@ -2758,12 +2770,7 @@ def gui_main() -> None:
                 filetypes=filetypes,
                 on_change=preview_func,
             )
-            ttk.Label(
-                encode,
-                text=metadata_storage_notice(label),
-                wraplength=900,
-                justify=tk.LEFT,
-            ).pack(anchor=tk.W, padx=10, pady=(8, 0))
+            self._pack_metadata_storage_notice(encode, label)
             ttk.Label(encode, text="Message").pack(anchor=tk.W, padx=10)
             ttk.Entry(encode, textvariable=msg_var).pack(
                 fill=tk.X, padx=10, pady=(0, 8)
@@ -2906,7 +2913,7 @@ def gui_main() -> None:
             img_var.trace_add("write", update_cap)
 
             vault_box = ttk.Labelframe(container, text="Key Vault")
-            vault_box.pack(fill=tk.X, pady=(12, 0))
+            vault_box.pack(fill=tk.X, pady=(6, 0))
 
             key_name = tk.StringVar(master=self.root)
             key_value = tk.StringVar(master=self.root)
@@ -2970,7 +2977,7 @@ def gui_main() -> None:
             )
 
             templates_box = ttk.Labelframe(container, text="Templates")
-            templates_box.pack(fill=tk.X, pady=(12, 0))
+            templates_box.pack(fill=tk.X, pady=(6, 0))
 
             template_name = tk.StringVar(master=self.root)
             ttk.Label(templates_box, text="Template name").pack(
@@ -3023,7 +3030,7 @@ def gui_main() -> None:
             )
 
             qr_box = ttk.Labelframe(container, text="QR Code Generator")
-            qr_box.pack(fill=tk.X, pady=(12, 0))
+            qr_box.pack(fill=tk.X, pady=(6, 0))
             qr_text = tk.StringVar(master=self.root)
             qr_out = tk.StringVar(master=self.root)
             ttk.Label(qr_box, text="Text").pack(anchor=tk.W, padx=10, pady=(6, 0))
@@ -3046,7 +3053,7 @@ def gui_main() -> None:
             ).pack(anchor=tk.W, padx=10, pady=(0, 10))
 
             portable_box = ttk.Labelframe(container, text="Portable Decoder")
-            portable_box.pack(fill=tk.X, pady=(12, 0))
+            portable_box.pack(fill=tk.X, pady=(6, 0))
             port_in = tk.StringVar(master=self.root)
             port_out = tk.StringVar(master=self.root)
             port_method = tk.StringVar(master=self.root, value="lsb")
@@ -3164,7 +3171,7 @@ def gui_main() -> None:
             )
 
             assoc_box = ttk.Labelframe(container, text="File Association (Windows)")
-            assoc_box.pack(fill=tk.X, pady=(12, 0))
+            assoc_box.pack(fill=tk.X, pady=(6, 0))
             assoc_out = tk.StringVar(master=self.root)
             self._save_row(
                 assoc_box,
@@ -3215,7 +3222,7 @@ def gui_main() -> None:
             ).pack(anchor=tk.W, padx=10, pady=(0, 10))
 
             meta_box = ttk.Labelframe(container, text="Metadata Viewer")
-            meta_box.pack(fill=tk.X, pady=(12, 0))
+            meta_box.pack(fill=tk.X, pady=(6, 0))
             meta_file = tk.StringVar(master=self.root)
             self._file_row(
                 meta_box, "File", meta_file, filetypes=[("All Files", "*.*")]
@@ -3263,7 +3270,7 @@ def gui_main() -> None:
             )
 
             hash_box = ttk.Labelframe(container, text="Data Integrity Check (SHA256)")
-            hash_box.pack(fill=tk.X, pady=(12, 0))
+            hash_box.pack(fill=tk.X, pady=(6, 0))
             hash_file = tk.StringVar(master=self.root)
             hash_result = tk.StringVar(master=self.root, value="")
             self._file_row(
@@ -3289,7 +3296,7 @@ def gui_main() -> None:
             )
 
             browser_box = ttk.Labelframe(container, text="File Browser")
-            browser_box.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
+            browser_box.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
             dir_var = tk.StringVar(master=self.root, value=str(Path.home()))
 
             dir_row = ttk.Frame(browser_box)
@@ -3319,7 +3326,7 @@ def gui_main() -> None:
             refresh_list()
 
             gallery_box = ttk.Labelframe(container, text="Gallery Builder")
-            gallery_box.pack(fill=tk.X, pady=(12, 0))
+            gallery_box.pack(fill=tk.X, pady=(6, 0))
 
             gallery_files: list[str] = []
             gallery_list = tk.Listbox(gallery_box, height=5)
@@ -3560,6 +3567,30 @@ def gui_main() -> None:
             container = ttk.Frame(parent)
             container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
+            def add_result_label(
+                label_parent: ttk.Labelframe,
+                textvariable: tk.StringVar,
+                bottom_padding: int,
+            ) -> None:
+                label = ttk.Label(
+                    label_parent,
+                    textvariable=textvariable,
+                    justify=tk.LEFT,
+                )
+                label.pack(
+                    anchor=tk.W,
+                    fill=tk.X,
+                    padx=10,
+                    pady=(0, bottom_padding),
+                )
+                label.bind(
+                    "<Configure>",
+                    lambda event: event.widget.configure(
+                        wraplength=max(1, event.width)
+                    ),
+                    add="+",
+                )
+
             compare = ttk.Labelframe(container, text="Image Comparison")
             compare.pack(fill=tk.X)
 
@@ -3596,9 +3627,7 @@ def gui_main() -> None:
                 ),
             ).pack(anchor=tk.W, padx=10, pady=(0, 10))
 
-            ttk.Label(compare, textvariable=result_var).pack(
-                anchor=tk.W, padx=10, pady=(0, 10)
-            )
+            add_result_label(compare, result_var, bottom_padding=10)
 
             detect = ttk.Labelframe(container, text="Stego Detection")
             detect.pack(fill=tk.X, pady=(12, 0))
@@ -3641,9 +3670,7 @@ def gui_main() -> None:
                 ),
             ).pack(anchor=tk.W, padx=10, pady=(0, 8))
 
-            ttk.Label(detect, textvariable=detect_result).pack(
-                anchor=tk.W, padx=10, pady=(0, 8)
-            )
+            add_result_label(detect, detect_result, bottom_padding=8)
 
             security = ttk.Labelframe(container, text="Security Analysis")
             security.pack(fill=tk.X, pady=(12, 0))
@@ -3681,9 +3708,7 @@ def gui_main() -> None:
                     sec_image.get(), sec_method.get(), sec_prng.get(), sec_result
                 ),
             ).pack(anchor=tk.W, padx=10, pady=(0, 8))
-            ttk.Label(security, textvariable=sec_result).pack(
-                anchor=tk.W, padx=10, pady=(0, 8)
-            )
+            add_result_label(security, sec_result, bottom_padding=8)
 
         def _update_image_preview(self, path: str) -> None:
             if not path:
