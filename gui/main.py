@@ -329,7 +329,7 @@ def run_gui_self_check() -> None:
         "PIL.ImageSequence",
         "mutagen.id3",
         "mutagen.mp4",
-        "PyPDF2",
+        "pypdf",
         "imageio.v2",
         "imageio_ffmpeg",
         "stego",
@@ -363,6 +363,136 @@ def _tk_file_patterns(extensions: tuple[str, ...]) -> str:
 
 def _media_filetypes(label: str, extensions: tuple[str, ...]) -> list[tuple[str, str]]:
     return [(f"{label} files", _tk_file_patterns(extensions)), ("All Files", "*.*")]
+
+
+def _make_placeholder_entry_class(tk: Any, ttk: Any) -> type:
+    """Create the themed entry class while keeping Tk imports lazy."""
+
+    class PlaceholderEntry(ttk.Entry):
+        """Entry widget with placeholder text support."""
+
+        def __init__(self, parent, placeholder="", **kwargs):
+            self._string_var = kwargs.pop("textvariable", None)
+            super().__init__(parent, **kwargs)
+            self.placeholder = placeholder
+            self.placeholder_color = "#999999"
+            self.default_color = (
+                "SystemWindowText" if sys.platform == "win32" else "black"
+            )
+            self._has_placeholder = False
+            self._ignore_trace = False
+
+            if self._string_var:
+                self._string_var.trace_add("write", self._on_var_changed)
+
+            initial_value = self._string_var.get() if self._string_var else ""
+            if initial_value:
+                self.insert(0, initial_value)
+                self.config(foreground=self.default_color)
+            elif placeholder:
+                self._show_placeholder()
+
+            self.bind("<FocusIn>", self._on_focus_in)
+            self.bind("<FocusOut>", self._on_focus_out)
+            self.bind("<KeyRelease>", self._on_key_release)
+
+        def _on_var_changed(self, *_args):
+            """Reflect writes made directly to the StringVar in the entry."""
+            if self._ignore_trace or not self._string_var:
+                return
+
+            value = self._string_var.get()
+            if not value:
+                if not self._has_placeholder:
+                    self.delete(0, tk.END)
+                    self._show_placeholder()
+                return
+
+            if self._has_placeholder or self.get() != value:
+                self.delete(0, tk.END)
+                self._has_placeholder = False
+                self.insert(0, value)
+            self.config(foreground=self.default_color)
+
+        def _on_key_release(self, *_args):
+            """Update StringVar when user types (without placeholder)."""
+            if not self._has_placeholder and self._string_var:
+                self._ignore_trace = True
+                self._string_var.set(self.get())
+                self._ignore_trace = False
+
+        def _show_placeholder(self, *_args):
+            if not self.get():
+                self._has_placeholder = True
+                self.insert(0, self.placeholder)
+                self.config(foreground=self.placeholder_color)
+                if self._string_var:
+                    self._ignore_trace = True
+                    self._string_var.set("")
+                    self._ignore_trace = False
+
+        def _on_focus_in(self, *_args):
+            if self._has_placeholder:
+                self.delete(0, tk.END)
+                self.config(foreground=self.default_color)
+                self._has_placeholder = False
+
+        def _on_focus_out(self, *_args):
+            if not self._has_placeholder and self._string_var:
+                self._ignore_trace = True
+                self._string_var.set(self.get())
+                self._ignore_trace = False
+
+            if not self.get():
+                self._show_placeholder()
+
+        def get_value(self):
+            """Get the actual value, returning empty string if showing placeholder."""
+            if self._has_placeholder:
+                return ""
+            return self.get()
+
+    return PlaceholderEntry
+
+
+def _select_carrier_for_path(
+    path: str | Path,
+    *,
+    carrier_vars: dict[str, Any],
+    outer_notebook: Any,
+    hide_data_tab: Any,
+    carrier_notebook: Any,
+    carrier_tabs: dict[str, Any],
+) -> bool:
+    """Populate and select the Hide Data carrier tab matching a file path."""
+    path_text = str(path)
+    extension = Path(path_text).suffix.lower()
+    if extension in IMAGE_FILE_EXTENSIONS:
+        kind = "image"
+    elif extension == ".pdf":
+        kind = "pdf"
+    elif extension in VIDEO_FILE_EXTENSIONS and extension not in {
+        ".m4a",
+        ".m4b",
+        ".m4p",
+    }:
+        kind = "video"
+    elif extension in AUDIO_FILE_EXTENSIONS:
+        kind = "audio"
+    else:
+        return False
+
+    carrier_vars[kind].set(path_text)
+    outer_notebook.select(hide_data_tab)
+    carrier_notebook.select(carrier_tabs[kind])
+    return True
+
+
+def _dialog_background(style: Any, *, dark_mode: bool) -> str:
+    """Return a dialog background from the active ttk theme or portable fallback."""
+    if dark_mode:
+        return "#2b2d31"
+    return style.lookup("TFrame", "background") or "#f0f0f0"
 
 
 @dataclass(frozen=True)
@@ -1076,7 +1206,7 @@ def gui_main() -> None:
     from PIL import ImageChops, ImageSequence, ImageTk
     from mutagen.id3 import ID3
     from mutagen.mp4 import MP4
-    from PyPDF2 import PdfReader
+    from pypdf import PdfReader
 
     # Try to import tkinterdnd2
     try:
@@ -1095,80 +1225,7 @@ def gui_main() -> None:
     BUTTON_WIDTH = 12
     BUTTON_WIDTH_LARGE = 16
 
-    class PlaceholderEntry(ttk.Entry):
-        """Entry widget with placeholder text support."""
-
-        def __init__(self, parent, placeholder="", **kwargs):
-            # Extract textvariable if provided
-            self._string_var = kwargs.pop("textvariable", None)
-            super().__init__(parent, **kwargs)
-            self.placeholder = placeholder
-            self.placeholder_color = "#999999"
-            # Use platform-appropriate default text color
-            if sys.platform == "win32":
-                self.default_color = "SystemWindowText"
-            else:
-                self.default_color = "black"
-            self._has_placeholder = False
-            self._ignore_trace = False
-
-            # Set up trace on the variable if provided
-            if self._string_var:
-                self._string_var.trace_add("write", self._on_var_changed)
-
-            if placeholder:
-                self._show_placeholder()
-
-            self.bind("<FocusIn>", self._on_focus_in)
-            self.bind("<FocusOut>", self._on_focus_out)
-            self.bind("<KeyRelease>", self._on_key_release)
-
-        def _on_var_changed(self, *args):
-            """Handle external changes to the StringVar."""
-            if not self._ignore_trace and self._string_var:
-                value = self._string_var.get()
-                if not value and not self._has_placeholder:
-                    self._show_placeholder()
-
-        def _on_key_release(self, *args):
-            """Update StringVar when user types (without placeholder)."""
-            if not self._has_placeholder and self._string_var:
-                self._ignore_trace = True
-                self._string_var.set(self.get())
-                self._ignore_trace = False
-
-        def _show_placeholder(self, *args):
-            if not self.get():
-                self._has_placeholder = True
-                self.insert(0, self.placeholder)
-                self.config(foreground=self.placeholder_color)
-                # Don't set placeholder in the StringVar
-                if self._string_var:
-                    self._ignore_trace = True
-                    self._string_var.set("")
-                    self._ignore_trace = False
-
-        def _on_focus_in(self, *args):
-            if self._has_placeholder:
-                self.delete(0, tk.END)
-                self.config(foreground=self.default_color)
-                self._has_placeholder = False
-
-        def _on_focus_out(self, *args):
-            # Update StringVar with actual value
-            if not self._has_placeholder and self._string_var:
-                self._ignore_trace = True
-                self._string_var.set(self.get())
-                self._ignore_trace = False
-
-            if not self.get():
-                self._show_placeholder()
-
-        def get_value(self):
-            """Get the actual value, returning empty string if showing placeholder."""
-            if self._has_placeholder:
-                return ""
-            return self.get()
+    PlaceholderEntry = _make_placeholder_entry_class(tk, ttk)
 
     class PasswordEntry(ttk.Frame):
         """Password entry with show/hide toggle."""
@@ -1719,10 +1776,13 @@ def gui_main() -> None:
             win.title("Help")
             win.geometry("600x500")
             win.transient(self.root)
+            dialog_bg = _dialog_background(
+                ttk.Style(self.root), dark_mode=self._detect_dark_mode()
+            )
 
             # Apply theme based on mode
             if self._detect_dark_mode():
-                win.configure(bg="#2b2d31")
+                win.configure(bg=dialog_bg)
                 text = tk.Text(
                     win,
                     wrap=tk.WORD,
@@ -1734,7 +1794,7 @@ def gui_main() -> None:
                     borderwidth=0,
                 )
             else:
-                win.configure(bg="SystemButtonFace")
+                win.configure(bg=dialog_bg)
                 text = tk.Text(
                     win,
                     wrap=tk.WORD,
@@ -1813,13 +1873,14 @@ def gui_main() -> None:
 
         def _load_file_to_appropriate_tab(self, path: str) -> None:
             """Load file into the appropriate tab based on extension."""
-            ext = Path(path).suffix.lower()
-            if ext in (".png", ".jpg", ".jpeg"):
-                self.notebook.select(self.tabs["Hide Data"])
-            elif ext in AUDIO_FILE_EXTENSIONS or ext in VIDEO_FILE_EXTENSIONS:
-                self.notebook.select(self.tabs["Hide Data"])
-            elif ext == ".pdf":
-                self.notebook.select(self.tabs["Hide Data"])
+            _select_carrier_for_path(
+                path,
+                carrier_vars=self.hide_data_carrier_vars,
+                outer_notebook=self.notebook,
+                hide_data_tab=self.tabs["Hide Data"],
+                carrier_notebook=self.hide_data_notebook,
+                carrier_tabs=self.hide_data_carrier_tabs,
+            )
 
         def _show_settings(self) -> None:
             """Show settings dialog."""
@@ -1830,10 +1891,13 @@ def gui_main() -> None:
             settings.grab_set()
 
             # Apply theme colors to toplevel window
+            dialog_bg = _dialog_background(
+                ttk.Style(self.root), dark_mode=self._detect_dark_mode()
+            )
             if self._detect_dark_mode():
-                settings.configure(bg="#2b2d31")
+                settings.configure(bg=dialog_bg)
             else:
-                settings.configure(bg="SystemButtonFace")
+                settings.configure(bg=dialog_bg)
 
             notebook = ttk.Notebook(settings)
             notebook.pack(
@@ -1944,6 +2008,15 @@ def gui_main() -> None:
             sub_notebook.add(video_frame, text="Video")
             sub_notebook.add(pdf_frame, text="PDF")
 
+            self.hide_data_notebook = sub_notebook
+            self.hide_data_carrier_tabs = {
+                "image": image_frame,
+                "audio": audio_frame,
+                "video": video_frame,
+                "pdf": pdf_frame,
+            }
+            self.hide_data_carrier_vars = {}
+
             self._build_image_tab(image_frame)
             self._build_audio_tab(audio_frame)
             self._build_video_tab(video_frame)
@@ -2001,6 +2074,7 @@ def gui_main() -> None:
             encode.pack(fill=tk.X, pady=(0, PADDING_MEDIUM))
 
             cover_var = tk.StringVar(master=self.root)
+            self.hide_data_carrier_vars["image"] = cover_var
             msg_var = tk.StringVar(master=self.root)
             payload_file_var = tk.StringVar(master=self.root)
             pwd_var = tk.StringVar(master=self.root)
@@ -2546,6 +2620,7 @@ def gui_main() -> None:
             encode.pack(fill=tk.X, pady=(0, 12))
 
             pdf_var = tk.StringVar(master=self.root)
+            self.hide_data_carrier_vars["pdf"] = pdf_var
             msg_var = tk.StringVar(master=self.root)
             payload_file_var = tk.StringVar(master=self.root)
             pwd_var = tk.StringVar(master=self.root)
@@ -2666,6 +2741,8 @@ def gui_main() -> None:
             encode.pack(fill=tk.X, pady=(0, 12))
 
             input_var = tk.StringVar(master=self.root)
+            if media_type in {"audio", "video"}:
+                self.hide_data_carrier_vars[media_type] = input_var
             msg_var = tk.StringVar(master=self.root)
             payload_file_var = tk.StringVar(master=self.root)
             pwd_var = tk.StringVar(master=self.root)
@@ -4478,8 +4555,11 @@ def gui_main() -> None:
             win.geometry("700x400")
 
             # Apply theme based on mode
+            dialog_bg = _dialog_background(
+                ttk.Style(self.root), dark_mode=self._detect_dark_mode()
+            )
             if self._detect_dark_mode():
-                win.configure(bg="#2b2d31")
+                win.configure(bg=dialog_bg)
                 txt = tk.Text(
                     win,
                     wrap=tk.WORD,
@@ -4491,7 +4571,7 @@ def gui_main() -> None:
                     pady=8,
                 )
             else:
-                win.configure(bg="SystemButtonFace")
+                win.configure(bg=dialog_bg)
                 txt = tk.Text(
                     win,
                     wrap=tk.WORD,

@@ -274,7 +274,9 @@ def make_rng(key: str) -> random.Random:
 
 def _make_streaming_prng_rng(key: str, purpose: str) -> random.Random:
     """Use domain-separated deterministic streams for the v3 index permutation."""
-    return make_rng(f"stego-image-v3\0{purpose}\0{key}")
+    material = f"stego-image-v3\0{purpose}\0{key}".encode("utf-8")
+    seed = int.from_bytes(hashlib.sha256(material).digest(), "big")
+    return random.Random(seed)
 
 
 def embed_bits_prng_streaming(

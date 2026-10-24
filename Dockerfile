@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     libjpeg-dev \
     libpng-dev \
-    ffmpeg \
     tk \
     xvfb \
     x11-utils \
@@ -46,12 +45,19 @@ RUN python -m PyInstaller --noconfirm --clean --onefile --windowed --paths . --c
 
 FROM python:3.14-slim AS final
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg tk \
+RUN apt-get update && apt-get install -y --no-install-recommends tk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+RUN groupadd --system stego \
+    && useradd --system --gid stego --create-home --home-dir /home/stego stego \
+    && chown stego:stego /app
+
 COPY --from=build /app/dist/stego-cli /usr/local/bin/
 COPY --from=build /app/dist/stego-gui /usr/local/bin/
 
-CMD ["stego-cli", "--help"]
+USER stego
+
+ENTRYPOINT ["stego-cli"]
+CMD ["--help"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import builtins
+import functools
 import os
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ import sys
 import wave
 from pathlib import Path
 
+import imageio_ffmpeg
 import pytest
 from PIL import Image
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -56,11 +58,34 @@ MAX_METADATA_STEGO_BYTES = 1_000_000
 
 def _run_ffmpeg(*args: str) -> None:
     subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *args],
+        [
+            imageio_ffmpeg.get_ffmpeg_exe(),
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            *args,
+        ],
         check=True,
         capture_output=True,
         text=True,
     )
+
+
+@functools.lru_cache(maxsize=1)
+def _available_ffmpeg_encoders() -> frozenset[str]:
+    result = subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-encoders"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    encoders: set[str] = set()
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and len(fields[0]) == 6 and fields[0][0] == "A":
+            encoders.add(fields[1])
+    return frozenset(encoders)
 
 
 def _make_audio(path, extension: str) -> None:
@@ -74,8 +99,7 @@ def _make_audio(path, extension: str) -> None:
         ".mov": "aac",
         ".wav": "pcm_s16le",
         ".flac": "flac",
-        # Keep this fixture independent of optional Vorbis encoder support.
-        ".ogg": "flac",
+        ".ogg": "libvorbis",
         ".opus": "libopus",
         ".aac": "aac",
     }
@@ -87,6 +111,19 @@ def _make_audio(path, extension: str) -> None:
         ".mov": "mov",
     }.get(extension)
     output_options = ["-f", output_format] if output_format else []
+    codec = codecs[extension]
+    codec_options: list[str] = []
+    available_encoders = _available_ffmpeg_encoders()
+    if extension == ".ogg" and codec not in available_encoders:
+        if "vorbis" in available_encoders:
+            codec = "vorbis"
+            codec_options = ["-strict", "-2", "-ac", "2"]
+        else:
+            pytest.skip("Bundled FFmpeg has no Vorbis encoder for OGG fixtures")
+    elif extension == ".opus" and codec not in available_encoders:
+        pytest.skip("Bundled FFmpeg has no libopus encoder for Opus fixtures")
+    elif codec not in available_encoders:
+        pytest.skip(f"Bundled FFmpeg has no {codec} encoder for {extension} fixtures")
     _run_ffmpeg(
         "-f",
         "lavfi",
@@ -94,10 +131,32 @@ def _make_audio(path, extension: str) -> None:
         "sine=frequency=880:sample_rate=44100:duration=0.25",
         "-vn",
         "-c:a",
-        codecs[extension],
+        codec,
+        *codec_options,
         *output_options,
         str(path),
     )
+
+
+def test_ogg_fixture_falls_back_to_native_vorbis_when_needed(monkeypatch, tmp_path):
+    commands = []
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "_available_ffmpeg_encoders",
+        lambda: frozenset({"vorbis"}),
+    )
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "_run_ffmpeg",
+        lambda *arguments: commands.append(arguments),
+    )
+
+    _make_audio(tmp_path / "source.ogg", ".ogg")
+
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("-c:a") + 1] == "vorbis"
+    assert commands[0][commands[0].index("-strict") + 1] == "-2"
+    assert commands[0][commands[0].index("-ac") + 1] == "2"
 
 
 @pytest.fixture(params=AUDIO_FORMATS, ids=lambda ext: ext.lstrip("."))

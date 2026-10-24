@@ -84,6 +84,7 @@ def encode_image(args: argparse.Namespace) -> None:
     """Encode data into image using LSB steganography."""
     if Path(args.out).suffix.lower() != ".png":
         raise ValueError("Image stego output must use the PNG format")
+    ensure_output_differs_from_input(args.image, args.out, "Image")
     ensure_output_differs_from_payloads(args.out, args.in_file)
     image = load_image(args.image)
     payload_limit = max_image_payload_bytes(
@@ -483,7 +484,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         format="%(levelname)s: %(message)s",
     )
 
-    args.func(args)
+    try:
+        args.func(args)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":

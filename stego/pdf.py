@@ -7,8 +7,8 @@ import logging
 import os
 import tempfile
 
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import DictionaryObject
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import DictionaryObject
 
 from .core import (
     FLAG_PAYLOAD_TEXT,
@@ -100,20 +100,11 @@ def embed_data_in_pdf(
             "signatures"
         )
 
-    writer = PdfWriter()
-    # PyPDF2 3.0.1's clone_document_from_reader() leaves its trailer root
-    # pointing at the writer's fresh catalog. Deep-clone the source catalog
-    # and rebind the trailer root so pages, outlines, names, forms, and other
-    # catalog entries survive the rewrite.
+    # Clone the source catalog along with its pages, outlines, names, and forms.
     try:
-        cloned_catalog = reader.trailer["/Root"].get_object().clone(writer)
+        writer = PdfWriter(clone_from=reader)
     except Exception as exc:
         raise ValueError("Could not preserve source PDF catalog structures") from exc
-    catalog_reference = cloned_catalog.indirect_reference
-    if catalog_reference is None or catalog_reference.pdf is not writer:
-        raise ValueError("Could not preserve source PDF catalog structures")
-    writer._root_object = cloned_catalog
-    writer._root = catalog_reference
 
     meta = reader.metadata or {}
     meta_dict = {str(k): str(v) for k, v in meta.items() if v is not None}

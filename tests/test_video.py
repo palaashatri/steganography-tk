@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import builtins
+from functools import lru_cache
 import os
 import subprocess
 from pathlib import Path
 
+import imageio_ffmpeg
 import pytest
 from PIL import Image
 
@@ -33,68 +35,139 @@ VIDEO_COMMENT_FORMATS = (".mkv", ".avi", ".webm")
 PASSWORD = "video-metadata-password"
 PAYLOAD = b"\x00video payload\x7f\xff"
 MAX_METADATA_STEGO_BYTES = 1_000_000
+FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
+
+_VIDEO_ENCODER_CANDIDATES = {
+    ".mp4": ("mpeg4", "libx264", "libx265"),
+    ".m4v": ("mpeg4", "libx264", "libx265"),
+    ".mov": ("mpeg4", "libx264", "prores_ks"),
+    ".mkv": ("ffv1", "mpeg4", "libx264", "libvpx-vp9"),
+    ".avi": ("mpeg4", "mjpeg"),
+    ".webm": ("libvpx-vp9", "libvpx", "libaom-av1"),
+}
+_VIDEO_MUXERS = {
+    ".mp4": "mp4",
+    ".m4v": "mp4",
+    ".mov": "mov",
+    ".mkv": "matroska",
+    ".avi": "avi",
+    ".webm": "webm",
+}
+
+
+def _run_ffmpeg(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", *arguments],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@lru_cache(maxsize=1)
+def _available_video_encoders() -> frozenset[str]:
+    result = subprocess.run(
+        [FFMPEG, "-hide_banner", "-encoders"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    encoders = set()
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and len(fields[0]) == 6 and fields[0][0] in "VASD":
+            encoders.add(fields[1])
+    return frozenset(encoders)
+
+
+@lru_cache(maxsize=1)
+def _available_video_muxers() -> frozenset[str]:
+    result = subprocess.run(
+        [FFMPEG, "-hide_banner", "-formats"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    muxers = set()
+    for line in result.stdout.splitlines():
+        if "E" not in line[1:3]:
+            continue
+        fields = line[4:].split(maxsplit=1)
+        if fields:
+            muxers.update(fields[0].split(","))
+    return frozenset(muxers)
+
+
+def _select_video_encoder(
+    extension: str,
+    available_encoders: set[str] | frozenset[str],
+    available_muxers: set[str] | frozenset[str],
+) -> str:
+    container_names = {
+        ".mp4": "MP4",
+        ".m4v": "MP4",
+        ".mov": "MOV",
+        ".mkv": "Matroska",
+        ".avi": "AVI",
+        ".webm": "WebM",
+    }
+    container_muxer = _VIDEO_MUXERS[extension]
+    if container_muxer not in available_muxers:
+        container_name = container_names[extension]
+        pytest.skip(f"Bundled FFmpeg has no compatible {container_name} video encoder")
+    for encoder in _VIDEO_ENCODER_CANDIDATES[extension]:
+        if encoder in available_encoders:
+            return encoder
+    container_name = container_names[extension]
+    pytest.skip(f"Bundled FFmpeg has no compatible {container_name} video encoder")
+
+
+def _video_encoder_options(encoder: str) -> list[str]:
+    if encoder in {"libvpx-vp9", "libvpx"}:
+        return ["-deadline", "realtime", "-cpu-used", "8"]
+    if encoder == "libaom-av1":
+        return ["-cpu-used", "8"]
+    return []
+
+
+def test_webm_encoder_selection_uses_only_supported_compatible_fallbacks():
+    assert (
+        _select_video_encoder(".webm", {"libvpx-vp9", "libvpx"}, {"webm"})
+        == "libvpx-vp9"
+    )
+    assert (
+        _select_video_encoder(".webm", {"libaom-av1", "mpeg4"}, {"webm"})
+        == "libaom-av1"
+    )
+    with pytest.raises(pytest.skip.Exception, match="compatible.*WebM"):
+        _select_video_encoder(".webm", {"mpeg4"}, {"webm"})
+    with pytest.raises(pytest.skip.Exception, match="compatible.*WebM"):
+        _select_video_encoder(".webm", {"libvpx-vp9"}, {"avi"})
 
 
 def _make_video(path, extension: str) -> None:
     if extension in {".m4a", ".m4b", ".m4p"}:
         output_format = "ipod" if extension in {".m4b", ".m4p"} else None
         format_args = ["-f", output_format] if output_format else []
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "sine=frequency=880:sample_rate=44100:duration=0.25",
-                "-vn",
-                "-c:a",
-                "aac",
-                *format_args,
-                str(path),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
+        _run_ffmpeg(
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:sample_rate=44100:duration=0.25",
+            "-vn",
+            "-c:a",
+            "aac",
+            *format_args,
+            str(path),
         )
         return
     if extension in {".mp4", ".m4v", ".mov"}:
-        codec = "mpeg4"
+        codec = _select_video_encoder(
+            extension, _available_video_encoders(), _available_video_muxers()
+        )
         output_format = {".m4v": "mp4", ".mov": "mov"}.get(extension)
         format_args = ["-f", output_format] if output_format else []
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "testsrc=size=64x64:rate=2:duration=1",
-                "-an",
-                "-c:v",
-                codec,
-                *format_args,
-                str(path),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return
-    codec = {".mkv": "ffv1", ".avi": "mpeg4", ".webm": "libvpx-vp9"}[extension]
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
+        _run_ffmpeg(
             "-f",
             "lavfi",
             "-i",
@@ -102,11 +175,24 @@ def _make_video(path, extension: str) -> None:
             "-an",
             "-c:v",
             codec,
+            *_video_encoder_options(codec),
+            *format_args,
             str(path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+        )
+        return
+    codec = _select_video_encoder(
+        extension, _available_video_encoders(), _available_video_muxers()
+    )
+    _run_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=64x64:rate=2:duration=1",
+        "-an",
+        "-c:v",
+        codec,
+        *_video_encoder_options(codec),
+        str(path),
     )
 
 
@@ -131,25 +217,17 @@ def video_comment_source(request, tmp_path_factory):
 @pytest.fixture
 def mp4_source(tmp_path_factory):
     path = tmp_path_factory.mktemp("video-mp4") / "source.mp4"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc=size=64x64:rate=2:duration=1",
-            "-an",
-            "-c:v",
-            "mpeg4",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+    _run_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=64x64:rate=2:duration=1",
+        "-an",
+        "-c:v",
+        _select_video_encoder(
+            ".mp4", _available_video_encoders(), _available_video_muxers()
+        ),
+        str(path),
     )
     return path
 
@@ -456,48 +534,76 @@ def test_video_comment_embedding_preserves_other_carrier_metadata(tmp_path):
     source = tmp_path / "source.mkv"
     _make_video(source, ".mkv")
     tagged_source = tmp_path / "tagged.mkv"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            str(source),
-            "-map",
-            "0",
-            "-c",
-            "copy",
-            "-metadata",
-            "title=source title",
-            str(tagged_source),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+    _run_ffmpeg(
+        "-i",
+        str(source),
+        "-map",
+        "0",
+        "-c",
+        "copy",
+        "-metadata",
+        "title=source title",
+        str(tagged_source),
     )
     output = tmp_path / "stego.mkv"
 
     embed_data_in_video(str(tagged_source), str(output), message="payload")
 
-    metadata_result = subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            str(output),
-            "-f",
-            "ffmetadata",
-            "-",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+    metadata_result = _run_ffmpeg(
+        "-i",
+        str(output),
+        "-f",
+        "ffmetadata",
+        "-",
     )
     assert "title=source title" in metadata_result.stdout
+
+
+def test_video_comment_embedding_preserves_all_streams_and_payload(tmp_path):
+    source = tmp_path / "multi-stream.mkv"
+    _run_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=64x64:rate=2:duration=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=48000:duration=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=880:sample_rate=48000:duration=1",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-map",
+        "2:a:0",
+        "-c:v",
+        _select_video_encoder(
+            ".mkv", _available_video_encoders(), _available_video_muxers()
+        ),
+        "-c:a",
+        "flac",
+        "-metadata:s:a:0",
+        "title=English",
+        "-metadata:s:a:1",
+        "title=French",
+        str(source),
+    )
+    output = tmp_path / "stego.mkv"
+
+    embed_data_in_video(str(source), str(output), message="multi-stream payload")
+
+    for stream in ("0:v:0", "0:a:0", "0:a:1"):
+        _run_ffmpeg("-i", str(output), "-map", stream, "-f", "null", "-")
+    with pytest.raises(subprocess.CalledProcessError):
+        _run_ffmpeg("-i", str(output), "-map", "0:a:2", "-f", "null", "-")
+    extracted = tmp_path / "extracted.txt"
+    extract_data_from_video(str(output), str(extracted))
+
+    assert extracted.read_bytes() == b"multi-stream payload"
 
 
 def test_video_comment_extraction_rejects_invalid_base64(
@@ -649,25 +755,17 @@ def test_video_backend_mismatch_preserves_output(temp_dir, preexisting):
 @pytest.mark.parametrize("preexisting", (False, True), ids=("new", "existing"))
 def test_video_same_backend_suffix_change_preserves_output(temp_dir, preexisting):
     source = temp_dir / "source.mkv"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc=size=64x64:rate=2:duration=1",
-            "-an",
-            "-c:v",
-            "libvpx-vp9",
-            str(source),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+    _run_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=64x64:rate=2:duration=1",
+        "-an",
+        "-c:v",
+        _select_video_encoder(
+            ".mkv", _available_video_encoders(), _available_video_muxers()
+        ),
+        str(source),
     )
     output = temp_dir / "different-suffix.webm"
     original = b"existing destination must survive"

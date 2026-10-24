@@ -93,7 +93,7 @@ python -m pip install pytest pytest-cov
 pytest -q
 ```
 
-The test suite also requires the `ffmpeg` command-line executable on `PATH` to create audio and video fixtures. Install FFmpeg with your operating system's package manager before running the tests.
+Audio and video test fixtures use the FFmpeg binary bundled by `imageio-ffmpeg`; you do not need a separate system FFmpeg installation to run the tests.
 
 Run the Docker test image with:
 

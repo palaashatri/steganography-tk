@@ -6,8 +6,8 @@ import base64
 import os
 
 import pytest
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import (
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import (
     ArrayObject,
     ByteStringObject,
     DecodedStreamObject,

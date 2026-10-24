@@ -95,11 +95,12 @@ def create_portable_decoder(
     extension = carrier.suffix.lower()
     carrier_marker = "__CARRIER__"
     output_marker = "__OUTPUT__"
-    requires_prng_key = method in {"lsb-prng", "lsb-match-prng"}
+    requires_prng_key = False
     if extension == ".png":
         arguments = ["decode", "--image", carrier_marker, "--out", output_marker]
         if method:
             arguments.extend(["--method", method])
+        requires_prng_key = method in {"lsb-prng", "lsb-match-prng"}
     elif extension in AUDIO_EXTS:
         arguments = ["audio-decode", "--audio", carrier_marker, "--out", output_marker]
     elif extension in VIDEO_EXTS or extension in MP4_CONTAINER_EXTS:
@@ -127,6 +128,7 @@ def create_portable_decoder(
             ]
             if method:
                 arguments.extend(["--method", method])
+            requires_prng_key = method in {"lsb-prng", "lsb-match-prng"}
     elif extension == ".pdf":
         arguments = ["pdf-decode", "--pdf", carrier_marker, "--out", output_marker]
     else:

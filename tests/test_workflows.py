@@ -46,10 +46,11 @@ def test_one_python_314_cross_platform_workflow_runs_for_ci_events() -> None:
     assert "pytest" not in ci
 
 
-def test_linux_and_docker_test_commands_start_xvfb_and_keep_ffmpeg() -> None:
-    """Linux GUI tests and Docker tests must run with Xvfb, Tk, and ffmpeg."""
+def test_linux_and_docker_tests_use_bundled_ffmpeg_and_start_xvfb() -> None:
+    """Test fixtures use bundled FFmpeg; Linux GUI tests use Xvfb and Tk."""
     tests = (WORKFLOWS / "test.yml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     docker_xvfb_runner = (ROOT / "scripts" / "run-tests-xvfb.sh").read_text(
         encoding="utf-8"
     )
@@ -62,7 +63,7 @@ def test_linux_and_docker_test_commands_start_xvfb_and_keep_ffmpeg() -> None:
     linux_packages = set(
         re.findall(r"(?m)^\s+([a-z0-9][a-z0-9-]*)\s*\\?$", linux_install)
     )
-    assert {"ffmpeg", "xvfb", "tk", "tk-dev"} <= linux_packages
+    assert {"xvfb", "tk", "tk-dev"} <= linux_packages
     docker_install = dockerfile.split(
         "apt-get install -y --no-install-recommends", maxsplit=1
     )[1].split("&&", maxsplit=1)[0]
@@ -70,10 +71,11 @@ def test_linux_and_docker_test_commands_start_xvfb_and_keep_ffmpeg() -> None:
         re.findall(r"(?m)^\s+([a-z0-9][a-z0-9-]*)\s*\\?$", docker_install)
     )
     assert {"tk", "x11-utils", "xauth", "xvfb"} <= docker_packages
-    assert "brew install ffmpeg" in tests
-    assert "choco install ffmpeg -y" in tests
+    assert "imageio-ffmpeg" in requirements
+    assert "brew install ffmpeg" not in tests
+    assert "choco install ffmpeg -y" not in tests
     assert "python:3.14-slim" in dockerfile
-    assert re.search(r"(?is)apt-get install(?:(?!&&).)*\bffmpeg\b", dockerfile)
+    assert not re.search(r"(?is)apt-get install(?:(?!&&).)*\bffmpeg\b", dockerfile)
     assert "scripts/run-tests-xvfb.sh" in dockerfile
     assert 'Xvfb "$display"' in docker_xvfb_runner
     assert "xdpyinfo" in docker_xvfb_runner

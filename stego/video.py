@@ -203,6 +203,8 @@ def _ffmpeg_embed_comment(input_path: str, output_path: str, comment: str) -> No
             "ffmetadata",
             "-i",
             str(metadata_path),
+            "-map",
+            "0",
             "-map_metadata",
             "1",
             "-c",

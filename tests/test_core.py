@@ -1,6 +1,7 @@
 """Tests for stego.core module."""
 
 import base64
+import hashlib
 import random
 import zlib
 from array import array
@@ -83,6 +84,43 @@ def test_streaming_prng_permutation_is_a_stable_prefix_and_full_permutation():
     assert actual == expected_stream
     assert len(set(actual)) == 257
     assert prefix == actual[:7]
+
+
+def test_streaming_prng_rng_uses_full_domain_separated_digest():
+    key = "streaming-prng-key"
+    purpose = "indices"
+    material = f"stego-image-v3\0{purpose}\0{key}".encode("utf-8")
+    full_digest_seed = int.from_bytes(hashlib.sha256(material).digest(), "big")
+
+    actual = core._make_streaming_prng_rng(key, purpose)
+    expected = random.Random(full_digest_seed)
+    truncated_legacy = make_rng(material.decode("utf-8"))
+
+    assert [actual.getrandbits(64) for _ in range(4)] == [
+        expected.getrandbits(64) for _ in range(4)
+    ]
+    assert core._make_streaming_prng_rng(key, purpose).getrandbits(64) == (
+        random.Random(full_digest_seed).getrandbits(64)
+    )
+    assert core._make_streaming_prng_rng(key, "lsb-match").getrandbits(64) != (
+        random.Random(full_digest_seed).getrandbits(64)
+    )
+    assert core._make_streaming_prng_rng(key, purpose).getrandbits(64) != (
+        truncated_legacy.getrandbits(64)
+    )
+
+
+def test_legacy_make_rng_retains_truncated_sha256_seed():
+    key = "legacy-prng-key"
+    legacy_seed = int.from_bytes(
+        hashlib.sha256(key.encode("utf-8")).digest()[:8], "big"
+    )
+    actual = make_rng(key)
+    expected = random.Random(legacy_seed)
+
+    assert [actual.getrandbits(64) for _ in range(4)] == [
+        expected.getrandbits(64) for _ in range(4)
+    ]
 
 
 def test_version_three_payload_uses_authenticated_header():

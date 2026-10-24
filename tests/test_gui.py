@@ -1464,6 +1464,156 @@ def test_quick_help_discloses_metadata_storage_without_security_superlatives():
     assert "more secure" not in help_text
 
 
+def test_placeholder_entry_reflects_external_nonempty_stringvar_writes(tk_root):
+    import tkinter as tk
+    from tkinter import ttk
+
+    from gui.main import _make_placeholder_entry_class
+
+    entry_class = _make_placeholder_entry_class(tk, ttk)
+    message = tk.StringVar(master=tk_root)
+    entry = entry_class(
+        tk_root, textvariable=message, placeholder="Enter secret message..."
+    )
+    entry.pack()
+
+    assert entry.get() == "Enter secret message..."
+    assert entry._has_placeholder
+
+    message.set("pasted from clipboard")
+
+    assert entry.get() == "pasted from clipboard"
+    assert not entry._has_placeholder
+    entry._on_focus_out()
+    assert message.get() == "pasted from clipboard"
+
+    message.set("")
+    assert entry.get() == "Enter secret message..."
+    assert entry._has_placeholder
+
+
+def test_placeholder_entry_preserves_stringvar_value_on_construction(tk_root):
+    import tkinter as tk
+    from tkinter import ttk
+
+    from gui.main import _make_placeholder_entry_class
+
+    entry_class = _make_placeholder_entry_class(tk, ttk)
+    message = tk.StringVar(master=tk_root, value="already populated")
+
+    entry = entry_class(
+        tk_root, textvariable=message, placeholder="Enter secret message..."
+    )
+
+    assert message.get() == "already populated"
+    assert entry.get() == "already populated"
+    assert not entry._has_placeholder
+
+
+@pytest.mark.parametrize(
+    ("path", "kind"),
+    [
+        ("cover.png", "image"),
+        ("track.mp3", "audio"),
+        ("movie.mkv", "video"),
+        ("document.pdf", "pdf"),
+    ],
+)
+def test_opened_carrier_path_populates_and_selects_matching_hide_mode(path, kind):
+    from gui.main import _select_carrier_for_path
+
+    class Value:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, value):
+            self.value = value
+
+    class Notebook:
+        def __init__(self):
+            self.selected = None
+
+        def select(self, tab):
+            self.selected = tab
+
+    variables = {name: Value() for name in ("image", "audio", "video", "pdf")}
+    carrier_tabs = {name: object() for name in variables}
+    hide_tab = object()
+    outer_notebook = Notebook()
+    carrier_notebook = Notebook()
+
+    loaded = _select_carrier_for_path(
+        path,
+        carrier_vars=variables,
+        outer_notebook=outer_notebook,
+        hide_data_tab=hide_tab,
+        carrier_notebook=carrier_notebook,
+        carrier_tabs=carrier_tabs,
+    )
+
+    assert loaded
+    assert variables[kind].value == path
+    assert all(
+        value.value == (path if name == kind else "")
+        for name, value in variables.items()
+    )
+    assert outer_notebook.selected is hide_tab
+    assert carrier_notebook.selected is carrier_tabs[kind]
+
+
+def test_opened_mp4_is_routed_to_video_but_m4a_is_routed_to_audio():
+    from gui.main import _select_carrier_for_path
+
+    class Value:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, value):
+            self.value = value
+
+    class Notebook:
+        def select(self, _tab):
+            pass
+
+    variables = {name: Value() for name in ("image", "audio", "video", "pdf")}
+    carrier_tabs = {name: object() for name in variables}
+    outer_notebook = Notebook()
+    carrier_notebook = Notebook()
+    args = {
+        "carrier_vars": variables,
+        "outer_notebook": outer_notebook,
+        "hide_data_tab": object(),
+        "carrier_notebook": carrier_notebook,
+        "carrier_tabs": carrier_tabs,
+    }
+
+    assert _select_carrier_for_path("clip.mp4", **args)
+    assert variables["video"].value == "clip.mp4"
+    assert _select_carrier_for_path("song.m4a", **args)
+    assert variables["audio"].value == "song.m4a"
+
+
+def test_dialog_background_uses_theme_color_and_portable_fallback():
+    from gui.main import _dialog_background
+
+    class Style:
+        def __init__(self, background):
+            self.background = background
+
+        def lookup(self, _style, _option):
+            return self.background
+
+    assert _dialog_background(Style("#dddddd"), dark_mode=False) == "#dddddd"
+    assert _dialog_background(Style(""), dark_mode=False) == "#f0f0f0"
+    assert _dialog_background(Style("#dddddd"), dark_mode=True) == "#2b2d31"
+
+
+def test_dialogs_do_not_use_windows_only_background_color():
+    source = Path(__file__).resolve().parents[1] / "gui" / "main.py"
+
+    assert "SystemButtonFace" not in source.read_text(encoding="utf-8")
+
+
 def test_gui_self_check_does_not_open_a_window(monkeypatch):
     import gui.main as gui_module
 

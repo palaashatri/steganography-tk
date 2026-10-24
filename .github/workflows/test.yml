@@ -19,10 +19,12 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ['3.14']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -33,7 +35,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            ffmpeg \
             xvfb \
             xauth \
             libxkbcommon-x11-0 \
@@ -46,15 +47,6 @@ jobs:
             libxcb-xfixes0 \
             tk \
             tk-dev
-
-      - name: Install macOS system dependencies
-        if: runner.os == 'macOS'
-        run: brew install ffmpeg
-
-      - name: Install Windows system dependencies
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: choco install ffmpeg -y
 
       - name: Install Python dependencies
         run: |
@@ -78,10 +70,20 @@ jobs:
     name: Docker test target
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Build test image
         run: docker build --target test -t stego-test .
 
       - name: Run tests in Docker with Xvfb
         run: docker run --rm stego-test
+
+      - name: Build the runtime image
+        run: docker build --target final -t stego-runtime .
+
+      - name: Smoke test the unprivileged runtime image
+        run: |
+          docker run --rm --entrypoint sh stego-runtime -c 'test "$(id -u)" -ne 0 && touch /app/.write-check && rm /app/.write-check'
+          docker run --rm stego-runtime --help

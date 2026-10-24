@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 import pytest
 from PIL import Image
-from PyPDF2 import PdfWriter
+from pypdf import PdfWriter
 
 
 MAX_METADATA_STEGO_BYTES = 1_000_000
