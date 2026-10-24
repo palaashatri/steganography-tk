@@ -1,19 +1,21 @@
 """Tests for GUI behavior and the helpers it presents to users."""
 
+import os
 import sys
 import zipfile
-import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image
 
 
 def _save_vault_key_in_process(
-    vault_path: str, password: str, name: str, value: str
+    vault_path: str, password: str, name: str, value: str, barrier: Any
 ) -> None:
     from gui.main import save_encrypted_vault
 
+    barrier.wait(timeout=30)
     save_encrypted_vault(Path(vault_path), password, {name: value})
 
 
@@ -1168,6 +1170,7 @@ def test_vault_key_saves_preserve_keys_from_stale_gui_snapshots(tmp_path):
 
 def test_vault_concurrent_process_updates_keep_all_keys(tmp_path):
     from concurrent.futures import ProcessPoolExecutor
+    from multiprocessing import Manager
 
     from gui.main import load_encrypted_vault, save_encrypted_vault
 
@@ -1175,23 +1178,27 @@ def test_vault_concurrent_process_updates_keep_all_keys(tmp_path):
     password = "correct horse"
     save_encrypted_vault(vault_path, password, {"existing": "keep"})
 
-    with ProcessPoolExecutor(max_workers=2) as writers:
-        first_save = writers.submit(
-            _save_vault_key_in_process,
-            str(vault_path),
-            password,
-            "first",
-            "one",
-        )
-        second_save = writers.submit(
-            _save_vault_key_in_process,
-            str(vault_path),
-            password,
-            "second",
-            "two",
-        )
-        first_save.result(timeout=20)
-        second_save.result(timeout=20)
+    with Manager() as manager:
+        barrier = manager.Barrier(2)
+        with ProcessPoolExecutor(max_workers=2) as writers:
+            first_save = writers.submit(
+                _save_vault_key_in_process,
+                str(vault_path),
+                password,
+                "first",
+                "one",
+                barrier,
+            )
+            second_save = writers.submit(
+                _save_vault_key_in_process,
+                str(vault_path),
+                password,
+                "second",
+                "two",
+                barrier,
+            )
+            first_save.result(timeout=40)
+            second_save.result(timeout=40)
 
     assert load_encrypted_vault(vault_path, password) == {
         "existing": "keep",
