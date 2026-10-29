@@ -55,6 +55,7 @@ from stego import (
 )
 
 from stego.detect import lsb_pair_chi_square
+from gui import branding
 from stego.core import MAX_DECOMPRESSED_PAYLOAD_BYTES
 
 
@@ -1383,14 +1384,20 @@ def gui_main() -> None:
     class SteganographyGUI:
         def __init__(self, root: tk.Tk):
             self.root = root
-            self.root.title("Steganography Suite")
+            self.root.title(branding.APP_NAME)
 
             # Disable macOS window tabbing to prevent "tk" tab
             if sys.platform == "darwin":
                 try:
                     # Removed moveableModal - it breaks window controls
                     # Also try to prevent automatic tab creation
-                    self.root.createcommand("::tk::mac::ShowPreferences", lambda: None)
+                    self.root.createcommand(
+                        "::tk::mac::ShowPreferences", self._show_settings
+                    )
+                    self.root.createcommand("::tk::mac::Quit", self._on_close)
+                    self.root.createcommand(
+                        "tkAboutDialog", lambda: self._show_about()
+                    )
                 except Exception:
                     pass
 
@@ -1417,10 +1424,15 @@ def gui_main() -> None:
                 except Exception:
                     pass
 
+            # Logo on window/Dock/taskbar instead of the default Python icon
+            self._icon_refs = branding.apply_app_identity(self.root)
+            self._logo_image = branding.load_logo(self.root, 44)
+
             # Build UI first, then apply theme
             self._build_ui()
             self._apply_native_theme()
             self._setup_keyboard_shortcuts()
+            self._build_menubar()
 
             # Save window geometry on close
             self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -1588,24 +1600,45 @@ def gui_main() -> None:
             header = ttk.Frame(self.root)
             header.pack(side=tk.TOP, fill=tk.X, padx=PADDING_MEDIUM, pady=PADDING_SMALL)
 
-            title_frame = ttk.Frame(header)
-            title_frame.pack(side=tk.TOP, fill=tk.X, pady=(PADDING_SMALL, 0))
-            ttk.Label(
-                title_frame, text="Steganography Suite", style="Header.TLabel"
-            ).pack(side=tk.LEFT)
+            # Branded banner using the logo palette
+            banner = tk.Frame(header, bg=branding.VIOLET_NIGHT)
+            banner.pack(side=tk.TOP, fill=tk.X)
+            if self._logo_image is not None:
+                tk.Label(
+                    banner, image=self._logo_image, bg=branding.VIOLET_NIGHT, bd=0
+                ).pack(side=tk.LEFT, padx=(PADDING_LARGE, PADDING_MEDIUM), pady=10)
+            titles = tk.Frame(banner, bg=branding.VIOLET_NIGHT)
+            titles.pack(side=tk.LEFT, pady=8)
+            tk.Label(
+                titles,
+                text=branding.APP_NAME,
+                bg=branding.VIOLET_NIGHT,
+                fg=branding.PAPER,
+                font=("TkDefaultFont", 18, "bold"),
+            ).pack(anchor=tk.W)
+            tk.Label(
+                titles,
+                text="Hide and reveal data in images, video frames and documents",
+                bg=branding.VIOLET_NIGHT,
+                fg=branding.GOLD,
+                font=("TkDefaultFont", 11),
+            ).pack(anchor=tk.W)
+            tk.Frame(header, bg=branding.GOLD, height=2).pack(side=tk.TOP, fill=tk.X)
 
             # Quick action toolbar
+            title_frame = ttk.Frame(header)
+            title_frame.pack(side=tk.TOP, fill=tk.X, pady=(PADDING_SMALL, 0))
             toolbar = ttk.Frame(title_frame)
-            toolbar.pack(side=tk.RIGHT)
-            ttk.Button(toolbar, text="Open", width=8, command=self._quick_open).pack(
+            toolbar.pack(side=tk.LEFT)
+            ttk.Button(toolbar, text="Open…", width=8, command=self._quick_open).pack(
                 side=tk.LEFT, padx=2
             )
             ttk.Button(
-                toolbar, text="Settings", width=8, command=self._show_settings
+                toolbar, text="Settings…", width=9, command=self._show_settings
             ).pack(side=tk.LEFT, padx=2)
             ttk.Checkbutton(
                 toolbar,
-                text="Preview",
+                text="Show Preview",
                 variable=self.preview_visible,
                 command=self._toggle_preview,
             ).pack(side=tk.LEFT, padx=PADDING_SMALL)
@@ -1728,17 +1761,181 @@ def gui_main() -> None:
             self._build_history_tab(self.tabs["History"])
 
             self.status = StatusBar(self.root)
-            self.status.pack(side=tk.BOTTOM, fill=tk.X)
+            # Pack before the expanding content so it is never clipped
+            self.status.pack(side=tk.BOTTOM, fill=tk.X, before=content)
 
         def _setup_keyboard_shortcuts(self) -> None:
-            """Setup keyboard shortcuts for common actions."""
-            self.root.bind("<Control-o>", lambda e: self._quick_open())
-            self.root.bind("<Control-s>", lambda e: self._quick_save())
-            self.root.bind("<Control-comma>", lambda e: self._show_settings())
+            """Setup keyboard shortcuts (Command on macOS, Control elsewhere)."""
+            mod = "Command" if sys.platform == "darwin" else "Control"
+            self.root.bind(f"<{mod}-o>", lambda e: self._quick_open())
+            self.root.bind(f"<{mod}-comma>", lambda e: self._show_settings())
+            self.root.bind(f"<{mod}-w>", lambda e: self._on_close())
+            self.root.bind(f"<{mod}-p>", lambda e: self._toggle_preview_shortcut())
+            self.root.bind(f"<{mod}-slash>", lambda e: self._show_help())
+            self.root.bind(f"<{mod}-question>", lambda e: self._show_help())
             self.root.bind("<F1>", lambda e: self._show_help())
             self.root.bind(
-                "<Control-h>", lambda e: self.notebook.select(self.tabs["History"])
+                f"<{mod}-y>", lambda e: self.notebook.select(self.tabs["History"])
             )
+            for index, name in enumerate(self.tabs, start=1):
+                self.root.bind(
+                    f"<{mod}-Key-{index}>",
+                    lambda e, tab=name: self.notebook.select(self.tabs[tab]),
+                )
+
+        def _toggle_preview_shortcut(self) -> None:
+            self.preview_visible.set(not self.preview_visible.get())
+            self._toggle_preview()
+
+        def _build_menubar(self) -> None:
+            """Create the native menu bar (app, File, Edit, View, Window, Help)."""
+            mac = sys.platform == "darwin"
+            mod_name = "Command" if mac else "Ctrl"
+
+            def accel(key: str) -> dict[str, str]:
+                return {"accelerator": f"{mod_name}+{key}"} if not mac else {
+                    "accelerator": f"Command-{key}"
+                }
+
+            menubar = tk.Menu(self.root)
+
+            if mac:
+                app_menu = tk.Menu(menubar, name="apple", tearoff=False)
+                app_menu.add_command(
+                    label=f"About {branding.APP_NAME}", command=self._show_about
+                )
+                menubar.add_cascade(menu=app_menu)
+
+            file_menu = tk.Menu(menubar, tearoff=False)
+            file_menu.add_command(
+                label="Open…", command=self._quick_open, **accel("O")
+            )
+            self.recent_menu = tk.Menu(file_menu, tearoff=False)
+            file_menu.add_cascade(label="Open Recent", menu=self.recent_menu)
+            file_menu.add_separator()
+            file_menu.add_command(
+                label="Close Window" if mac else "Exit",
+                command=self._on_close,
+                **accel("W"),
+            )
+            menubar.add_cascade(label="File", menu=file_menu)
+
+            edit_menu = tk.Menu(menubar, tearoff=False)
+            for label, event, key in (
+                ("Cut", "<<Cut>>", "X"),
+                ("Copy", "<<Copy>>", "C"),
+                ("Paste", "<<Paste>>", "V"),
+                ("Select All", "<<SelectAll>>", "A"),
+            ):
+                edit_menu.add_command(
+                    label=label,
+                    command=lambda ev=event: self._send_virtual_event(ev),
+                    **accel(key),
+                )
+            if not mac:
+                edit_menu.add_separator()
+                edit_menu.add_command(
+                    label="Settings…", command=self._show_settings, **accel(",")
+                )
+            menubar.add_cascade(label="Edit", menu=edit_menu)
+
+            view_menu = tk.Menu(menubar, tearoff=False)
+            view_menu.add_checkbutton(
+                label="Show Preview Panel",
+                variable=self.preview_visible,
+                command=self._toggle_preview,
+                **accel("P"),
+            )
+            view_menu.add_separator()
+            for index, name in enumerate(self.tabs, start=1):
+                view_menu.add_command(
+                    label=name,
+                    command=lambda tab=name: self.notebook.select(self.tabs[tab]),
+                    **accel(str(index)),
+                )
+            menubar.add_cascade(label="View", menu=view_menu)
+
+            if mac:
+                window_menu = tk.Menu(menubar, name="window", tearoff=False)
+                window_menu.add_command(
+                    label="Minimize",
+                    command=self.root.iconify,
+                    **accel("M"),
+                )
+                menubar.add_cascade(label="Window", menu=window_menu)
+                self.root.bind("<Command-m>", lambda e: self.root.iconify())
+
+            help_menu = tk.Menu(menubar, name="help", tearoff=False)
+            help_menu.add_command(
+                label=f"{branding.APP_NAME} Help", command=self._show_help, accelerator="F1"
+            )
+            if not mac:
+                help_menu.add_command(
+                    label=f"About {branding.APP_NAME}", command=self._show_about
+                )
+            menubar.add_cascade(label="Help", menu=help_menu)
+
+            self.root.config(menu=menubar)
+            self.menubar = menubar
+            self._refresh_recent_menu()
+
+        def _send_virtual_event(self, sequence: str) -> None:
+            widget = self.root.focus_get()
+            if widget is not None:
+                widget.event_generate(sequence)
+
+        def _refresh_recent_menu(self) -> None:
+            menu = getattr(self, "recent_menu", None)
+            if menu is None:
+                return
+            menu.delete(0, tk.END)
+            if not self.recent_files:
+                menu.add_command(label="No Recent Files", state=tk.DISABLED)
+                return
+            for path in self.recent_files:
+                menu.add_command(
+                    label=Path(path).name,
+                    command=lambda p=path: self._load_file_to_appropriate_tab(p),
+                )
+            menu.add_separator()
+            menu.add_command(label="Clear Menu", command=self._clear_recent_files)
+
+        def _clear_recent_files(self) -> None:
+            self.recent_files = []
+            self._update_recent_files_ui()
+
+        def _show_about(self) -> None:
+            """Show the About dialog with the logo."""
+            win = tk.Toplevel(self.root)
+            win.title(f"About {branding.APP_NAME}")
+            win.resizable(False, False)
+            win.transient(self.root)
+            win.configure(bg=branding.VIOLET_NIGHT)
+            logo = branding.load_logo(win, 128)
+            if logo is not None:
+                win._logo = logo  # keep reference
+                tk.Label(win, image=logo, bg=branding.VIOLET_NIGHT).pack(
+                    padx=40, pady=(28, 8)
+                )
+            tk.Label(
+                win,
+                text=branding.APP_NAME,
+                bg=branding.VIOLET_NIGHT,
+                fg=branding.PAPER,
+                font=("TkDefaultFont", 18, "bold"),
+            ).pack()
+            tk.Label(
+                win,
+                text="LSB steganography for images and video frames,\n"
+                "plus visible-metadata containers for audio, video and PDF.",
+                bg=branding.VIOLET_NIGHT,
+                fg=branding.GOLD,
+                justify=tk.CENTER,
+            ).pack(padx=24, pady=(6, 16))
+            tk.Button(win, text="Close", command=win.destroy, highlightbackground=branding.VIOLET_NIGHT).pack(
+                pady=(0, 24)
+            )
+            win.bind("<Escape>", lambda e: win.destroy())
 
         def _toggle_preview(self) -> None:
             """Toggle preview panel visibility."""
@@ -1765,9 +1962,6 @@ def gui_main() -> None:
             if path:
                 self._add_recent_file(path)
                 self._load_file_to_appropriate_tab(path)
-
-        def _quick_save(self) -> None:
-            pass  # Placeholder for quick save
 
         def _show_help(self) -> None:
             """Show help dialog."""
@@ -1846,6 +2040,7 @@ def gui_main() -> None:
 
         def _update_recent_files_ui(self) -> None:
             """Update recent files display."""
+            self._refresh_recent_menu()
             for widget in self.recent_bar.winfo_children():
                 widget.destroy()
 
@@ -4622,9 +4817,10 @@ def gui_main() -> None:
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
 
+    branding.prepare_macos_app_name()
     root, dnd_available = _create_tk_root(tk, TkinterDnD if dnd_available else None)
 
-    root.title("Steganography Suite")
+    root.title(branding.APP_NAME)
     SteganographyGUI(root)
     root.mainloop()
 

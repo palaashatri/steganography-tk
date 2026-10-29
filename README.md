@@ -44,9 +44,9 @@ On Unix-like systems, `./run.sh` creates the local environment and runs a tempor
 
 ## GUI screenshots
 
-The [complete GUI screenshot gallery](docs/screenshots/README.md) covers the carrier modes, analysis, batch operations, shared tools, settings, help, and successful workflows.
+The [GUI screenshot gallery](docs/screenshots/README.md) shows the menu bar and every tab.
 
-![Image LSB encoding form](docs/screenshots/hide-data-image-mode.jpg)
+![Image LSB encoding form](docs/screenshots/hide-data.png)
 
 ## CLI examples
 
@@ -125,3 +125,7 @@ steganography-tk/
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+## Branding
+
+The app icon (violet image stack with a gold key) lives in [`assets/brand`](assets/brand). `gui/branding.py` applies it as the window icon on every platform (ICO + AppUserModelID on Windows, multi-size PNG `iconphoto` on Linux, Dock icon and menu-bar app name on macOS), so the default Python icon is never shown. The UI colours (violet `#9D66F0`/`#1B1233`, gold `#F5B83D`) come from the logo palette.

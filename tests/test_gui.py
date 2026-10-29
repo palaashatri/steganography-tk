@@ -1630,3 +1630,21 @@ def test_gui_self_check_does_not_open_a_window(monkeypatch):
     monkeypatch.setattr(gui_module, "gui_main", fail_if_gui_starts)
 
     assert gui_module.main(["--self-check"]) == 0
+
+
+def test_branding_assets_exist_and_palette_is_valid():
+    from gui import branding
+
+    for name in ("icon.ico", "icon.icns", "icon-16.png", "icon-256.png", "icon-512.png"):
+        assert branding.asset_path(name) is not None, name
+    for color in (branding.VIOLET, branding.GOLD, branding.VIOLET_NIGHT):
+        assert len(color) == 7 and color.startswith("#")
+
+
+def test_app_identity_installs_logo_icon(tk_root):
+    from gui import branding
+
+    refs = branding.apply_app_identity(tk_root)
+    assert refs, "expected icon PhotoImages to be retained"
+    logo = branding.load_logo(tk_root, 44)
+    assert logo is not None and logo.width() == 44
