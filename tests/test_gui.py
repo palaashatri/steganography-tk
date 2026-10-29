@@ -1600,19 +1600,32 @@ def test_opened_mp4_is_routed_to_video_but_m4a_is_routed_to_audio():
     assert variables["audio"].value == "song.m4a"
 
 
-def test_dialog_background_uses_theme_color_and_portable_fallback():
+def test_dialog_background_follows_active_brand_palette():
+    from gui import theme
     from gui.main import _dialog_background
 
-    class Style:
-        def __init__(self, background):
-            self.background = background
+    original = theme.CURRENT
+    try:
+        theme.CURRENT = theme.DARK
+        assert _dialog_background(None, dark_mode=True) == theme.DARK.bg
+        theme.CURRENT = theme.LIGHT
+        assert _dialog_background(None, dark_mode=False) == theme.LIGHT.bg
+    finally:
+        theme.CURRENT = original
 
-        def lookup(self, _style, _option):
-            return self.background
 
-    assert _dialog_background(Style("#dddddd"), dark_mode=False) == "#dddddd"
-    assert _dialog_background(Style(""), dark_mode=False) == "#f0f0f0"
-    assert _dialog_background(Style("#dddddd"), dark_mode=True) == "#2b2d31"
+def test_brand_theme_applies_and_scroll_frame_builds(tk_root):
+    from tkinter import ttk
+
+    from gui import theme
+
+    for mode in ("dark", "light"):
+        palette = theme.apply(tk_root, mode)
+        style = ttk.Style(tk_root)
+        assert style.lookup("Primary.TButton", "background") == palette.accent
+    frame = theme.ScrollFrame(tk_root)
+    ttk.Label(frame.interior, text="x").pack()
+    tk_root.update_idletasks()
 
 
 def test_dialogs_do_not_use_windows_only_background_color():

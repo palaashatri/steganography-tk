@@ -55,7 +55,7 @@ from stego import (
 )
 
 from stego.detect import lsb_pair_chi_square
-from gui import branding
+from gui import branding, theme
 from stego.core import MAX_DECOMPRESSED_PAYLOAD_BYTES
 
 
@@ -376,10 +376,10 @@ def _make_placeholder_entry_class(tk: Any, ttk: Any) -> type:
             self._string_var = kwargs.pop("textvariable", None)
             super().__init__(parent, **kwargs)
             self.placeholder = placeholder
-            self.placeholder_color = "#999999"
-            self.default_color = (
-                "SystemWindowText" if sys.platform == "win32" else "black"
-            )
+            from gui import theme as _theme
+
+            self.placeholder_color = _theme.CURRENT.muted
+            self.default_color = _theme.CURRENT.text
             self._has_placeholder = False
             self._ignore_trace = False
 
@@ -491,9 +491,9 @@ def _select_carrier_for_path(
 
 def _dialog_background(style: Any, *, dark_mode: bool) -> str:
     """Return a dialog background from the active ttk theme or portable fallback."""
-    if dark_mode:
-        return "#2b2d31"
-    return style.lookup("TFrame", "background") or "#f0f0f0"
+    from gui import theme as _theme
+
+    return _theme.CURRENT.bg
 
 
 @dataclass(frozen=True)
@@ -1310,18 +1310,19 @@ def gui_main() -> None:
             tip.wm_overrideredirect(True)
             tip.wm_geometry(f"+{x}+{y}")
             # Tooltips always use a light background for readability
-            tip.configure(bg="#f0f0f0")
+            pal = theme.CURRENT
+            tip.configure(bg=pal.accent)
             label = tk.Label(
                 tip,
                 text=self.text,
-                bg="#f0f0f0",
-                fg="#000000",
-                padx=8,
-                pady=4,
-                relief=tk.SOLID,
-                borderwidth=1,
+                bg=pal.raised,
+                fg=pal.text,
+                padx=10,
+                pady=5,
+                relief=tk.FLAT,
+                borderwidth=0,
             )
-            label.pack()
+            label.pack(padx=1, pady=1)
 
         def hide(self, _event=None):
             if self.tip:
@@ -1337,7 +1338,7 @@ def gui_main() -> None:
 
     class StatusBar(ttk.Frame):
         def __init__(self, parent: tk.Widget):
-            super().__init__(parent, relief=tk.RAISED, borderwidth=1)
+            super().__init__(parent, relief=tk.FLAT, borderwidth=0)
             self.message = ttk.Label(self, text="Ready", font=("TkDefaultFont", 9))
             self.message.pack(side=tk.LEFT, padx=(PADDING_MEDIUM, PADDING_MEDIUM))
 
@@ -1349,7 +1350,7 @@ def gui_main() -> None:
             self.time_label.pack(side=tk.RIGHT, padx=(0, PADDING_SMALL))
 
             self.progress = ttk.Progressbar(self, mode="indeterminate", length=200)
-            self.progress.pack(side=tk.RIGHT, padx=PADDING_SMALL, pady=2)
+            # Shown only while an operation is running
 
             self.start_time = None
 
@@ -1365,12 +1366,14 @@ def gui_main() -> None:
             self.message.config(text=prefix + text)
 
         def start(self) -> None:
+            self.progress.pack(side=tk.RIGHT, padx=PADDING_SMALL, pady=2)
             self.progress.start(10)
             self.start_time = time.time()
             self._update_elapsed()
 
         def stop(self) -> None:
             self.progress.stop()
+            self.progress.pack_forget()
             self.start_time = None
             self.time_label.config(text="")
 
@@ -1426,9 +1429,12 @@ def gui_main() -> None:
 
             # Logo on window/Dock/taskbar instead of the default Python icon
             self._icon_refs = branding.apply_app_identity(self.root)
-            self._logo_image = branding.load_logo(self.root, 44)
+            self._logo_image = branding.load_logo(self.root, 52)
 
-            # Build UI first, then apply theme
+            # Theme first so classic tk widgets pick up palette defaults
+            theme.apply(self.root, "dark" if self._detect_dark_mode() else "light")
+
+            # Build UI, then re-apply (live widgets)
             self._build_ui()
             self._apply_native_theme()
             self._setup_keyboard_shortcuts()
@@ -1438,142 +1444,33 @@ def gui_main() -> None:
             self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         def _apply_native_theme(self) -> None:
-            """Apply native OS theme with dark mode detection."""
-            style = ttk.Style()
-
+            """Apply the brand theme (follows system appearance unless overridden)."""
+            dark_mode = self._detect_dark_mode()
             if sys.platform == "darwin":
-                # Detect macOS dark mode and apply appearance
-                dark_mode = self._detect_dark_mode()
                 try:
-                    appearance = "darkAqua" if dark_mode else "aqua"
                     self.root.tk.call(
                         "::tk::unsupported::MacWindowStyle",
                         "appearance",
                         self.root._w,
-                        appearance,
+                        "darkAqua" if dark_mode else "aqua",
+                    )
+                except Exception:
+                    pass
+            theme.apply(self.root, "dark" if dark_mode else "light")
+            theme.promote_primary_buttons(self.root)
+            theme.recolor_classic_widgets(self.root)
+            if sys.platform == "win32":
+                try:
+                    import ctypes
+
+                    hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd, 20, ctypes.byref(ctypes.c_int(int(dark_mode))), 4
                     )
                 except Exception:
                     pass
 
-                # Apply aqua theme
-                if "aqua" in style.theme_names():
-                    style.theme_use("aqua")
-
-            elif sys.platform == "win32":
-                # Detect Windows dark mode
-                dark_mode = self._detect_dark_mode()
-
-                if dark_mode:
-                    # Use alt/clam theme for better dark mode support
-                    if "alt" in style.theme_names():
-                        style.theme_use("alt")
-                    elif "clam" in style.theme_names():
-                        style.theme_use("clam")
-
-                    # Apply dark colors
-                    bg_color = "#2b2b2b"
-                    fg_color = "#ffffff"
-                    select_bg = "#0078d7"
-
-                    style.configure(
-                        ".",
-                        background=bg_color,
-                        foreground=fg_color,
-                        fieldbackground="#3c3c3c",
-                        selectbackground=select_bg,
-                        selectforeground="#ffffff",
-                        bordercolor=bg_color,
-                        darkcolor=bg_color,
-                        lightcolor=bg_color,
-                    )
-
-                    style.map(
-                        ".",
-                        background=[("active", "#3c3c3c")],
-                        foreground=[("active", fg_color)],
-                    )
-
-                    style.configure("TFrame", background=bg_color)
-                    style.configure("TLabel", background=bg_color, foreground=fg_color)
-                    style.configure(
-                        "TLabelframe", background=bg_color, bordercolor=bg_color
-                    )
-                    style.configure(
-                        "TLabelframe.Label", background=bg_color, foreground=fg_color
-                    )
-                    style.configure(
-                        "Header.TLabel", background=bg_color, foreground=fg_color
-                    )
-
-                    style.configure(
-                        "TButton",
-                        background="#3c3c3c",
-                        foreground=fg_color,
-                        bordercolor="#3c3c3c",
-                        lightcolor="#3c3c3c",
-                        darkcolor="#3c3c3c",
-                    )
-                    style.map(
-                        "TButton",
-                        background=[("active", "#4c4c4c"), ("pressed", "#1e1e1e")],
-                    )
-
-                    style.configure(
-                        "TCheckbutton", background=bg_color, foreground=fg_color
-                    )
-                    style.map("TCheckbutton", background=[("active", bg_color)])
-
-                    style.configure(
-                        "TRadiobutton", background=bg_color, foreground=fg_color
-                    )
-                    style.map("TRadiobutton", background=[("active", bg_color)])
-
-                    style.configure(
-                        "TNotebook", background=bg_color, bordercolor=bg_color
-                    )
-                    style.configure(
-                        "TNotebook.Tab", background="#3c3c3c", foreground=fg_color
-                    )
-                    style.map("TNotebook.Tab", background=[("selected", "#4c4c4c")])
-
-                    style.configure(
-                        "TEntry",
-                        fieldbackground="#3c3c3c",
-                        foreground=fg_color,
-                        bordercolor=bg_color,
-                        lightcolor=bg_color,
-                        darkcolor=bg_color,
-                    )
-
-                    self.root.configure(bg=bg_color)
-
-                    # Try to set title bar to dark mode (Windows 10 build 17763+)
-                    try:
-                        import ctypes
-
-                        hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-                        DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-                        ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                            hwnd,
-                            DWMWA_USE_IMMERSIVE_DARK_MODE,
-                            ctypes.byref(ctypes.c_int(1)),
-                            ctypes.sizeof(ctypes.c_int),
-                        )
-                    except Exception:
-                        pass
-                else:
-                    # Light mode: use native Windows theme
-                    for name in ("vista", "xpnative", "winnative"):
-                        if name in style.theme_names():
-                            style.theme_use(name)
-                            break
-
-            # Apply standard styling
-            style.configure("Primary.TButton", padding=(PADDING_MEDIUM, PADDING_SMALL))
-            style.configure("TLabelframe.Label", font=("TkDefaultFont", 10, "bold"))
-            style.configure("Header.TLabel", font=("TkDefaultFont", 16, "bold"))
-
-        def _detect_dark_mode(self) -> bool:
+        def _system_dark_mode(self) -> bool:
             try:
                 if sys.platform == "win32":
                     import winreg
@@ -1595,35 +1492,24 @@ def gui_main() -> None:
                 return False
             return False
 
+        def _detect_dark_mode(self) -> bool:
+            choice = os.environ.get("STEGO_THEME") or self.preferences.get(
+                "theme", "system"
+            )
+            if choice == "dark":
+                return True
+            if choice == "light":
+                return False
+            return self._system_dark_mode()
+
         def _build_ui(self) -> None:
             # Header with title and toolbar
             header = ttk.Frame(self.root)
             header.pack(side=tk.TOP, fill=tk.X, padx=PADDING_MEDIUM, pady=PADDING_SMALL)
 
-            # Branded banner using the logo palette
-            banner = tk.Frame(header, bg=branding.VIOLET_NIGHT)
-            banner.pack(side=tk.TOP, fill=tk.X)
-            if self._logo_image is not None:
-                tk.Label(
-                    banner, image=self._logo_image, bg=branding.VIOLET_NIGHT, bd=0
-                ).pack(side=tk.LEFT, padx=(PADDING_LARGE, PADDING_MEDIUM), pady=10)
-            titles = tk.Frame(banner, bg=branding.VIOLET_NIGHT)
-            titles.pack(side=tk.LEFT, pady=8)
-            tk.Label(
-                titles,
-                text=branding.APP_NAME,
-                bg=branding.VIOLET_NIGHT,
-                fg=branding.PAPER,
-                font=("TkDefaultFont", 18, "bold"),
-            ).pack(anchor=tk.W)
-            tk.Label(
-                titles,
-                text="Hide and reveal data in images, video frames and documents",
-                bg=branding.VIOLET_NIGHT,
-                fg=branding.GOLD,
-                font=("TkDefaultFont", 11),
-            ).pack(anchor=tk.W)
-            tk.Frame(header, bg=branding.GOLD, height=2).pack(side=tk.TOP, fill=tk.X)
+            # Branded gradient banner using the logo palette
+            self.banner = theme.BrandBanner(header, self._logo_image)
+            self.banner.pack(side=tk.TOP, fill=tk.X)
 
             # Quick action toolbar
             title_frame = ttk.Frame(header)
@@ -1698,7 +1584,7 @@ def gui_main() -> None:
 
             # File info display
             self.file_info_label = ttk.Label(
-                image_box, text="", font=("TkDefaultFont", 8), foreground="#666"
+                image_box, text="", style="Muted.TLabel"
             )
             self.file_info_label.pack(
                 fill=tk.X, padx=PADDING_SMALL, pady=(0, PADDING_SMALL)
@@ -1732,7 +1618,7 @@ def gui_main() -> None:
                 "Hide Data": ttk.Frame(self.root),
                 "Reveal Data": ttk.Frame(self.root),
                 "Advanced": ttk.Frame(self.root),
-                "Batch Operations": ttk.Frame(self.root),
+                "Batch Operations": theme.ScrollFrame(self.root),
                 "Analysis & Tools": ttk.Frame(self.root),
                 "History": ttk.Frame(self.root),
             }
@@ -1756,7 +1642,7 @@ def gui_main() -> None:
             self._build_hide_data_tab(self.tabs["Hide Data"])
             self._build_reveal_data_tab(self.tabs["Reveal Data"])
             self._build_advanced_tab(self.tabs["Advanced"])
-            self._build_batch_tab(self.tabs["Batch Operations"])
+            self._build_batch_tab(self.tabs["Batch Operations"].interior)
             self._build_tools_tab(self.tabs["Analysis & Tools"])
             self._build_history_tab(self.tabs["History"])
 
@@ -1910,31 +1796,22 @@ def gui_main() -> None:
             win.title(f"About {branding.APP_NAME}")
             win.resizable(False, False)
             win.transient(self.root)
-            win.configure(bg=branding.VIOLET_NIGHT)
+            win.configure(bg=theme.CURRENT.bg)
             logo = branding.load_logo(win, 128)
             if logo is not None:
                 win._logo = logo  # keep reference
-                tk.Label(win, image=logo, bg=branding.VIOLET_NIGHT).pack(
-                    padx=40, pady=(28, 8)
-                )
-            tk.Label(
-                win,
-                text=branding.APP_NAME,
-                bg=branding.VIOLET_NIGHT,
-                fg=branding.PAPER,
-                font=("TkDefaultFont", 18, "bold"),
-            ).pack()
-            tk.Label(
+                ttk.Label(win, image=logo).pack(padx=48, pady=(30, 10))
+            ttk.Label(win, text=branding.APP_NAME, style="Header.TLabel").pack()
+            ttk.Label(
                 win,
                 text="LSB steganography for images and video frames,\n"
                 "plus visible-metadata containers for audio, video and PDF.",
-                bg=branding.VIOLET_NIGHT,
-                fg=branding.GOLD,
+                style="Muted.TLabel",
                 justify=tk.CENTER,
-            ).pack(padx=24, pady=(6, 16))
-            tk.Button(win, text="Close", command=win.destroy, highlightbackground=branding.VIOLET_NIGHT).pack(
-                pady=(0, 24)
-            )
+            ).pack(padx=24, pady=(6, 18))
+            ttk.Button(
+                win, text="Close", command=win.destroy, style="Primary.TButton"
+            ).pack(pady=(0, 26))
             win.bind("<Escape>", lambda e: win.destroy())
 
         def _toggle_preview(self) -> None:
@@ -1974,31 +1851,15 @@ def gui_main() -> None:
                 ttk.Style(self.root), dark_mode=self._detect_dark_mode()
             )
 
-            # Apply theme based on mode
-            if self._detect_dark_mode():
-                win.configure(bg=dialog_bg)
-                text = tk.Text(
-                    win,
-                    wrap=tk.WORD,
-                    padx=PADDING_MEDIUM,
-                    pady=PADDING_MEDIUM,
-                    bg="#2b2d31",
-                    fg="#dcddde",
-                    insertbackground="#dcddde",
-                    borderwidth=0,
-                )
-            else:
-                win.configure(bg=dialog_bg)
-                text = tk.Text(
-                    win,
-                    wrap=tk.WORD,
-                    padx=PADDING_MEDIUM,
-                    pady=PADDING_MEDIUM,
-                    bg="white",
-                    fg="black",
-                    insertbackground="black",
-                )
-            text.pack(fill=tk.BOTH, expand=True)
+            win.configure(bg=dialog_bg)
+            text = tk.Text(
+                win,
+                wrap=tk.WORD,
+                padx=PADDING_LARGE,
+                pady=PADDING_LARGE,
+                **theme.text_options(),
+            )
+            text.pack(fill=tk.BOTH, expand=True, padx=PADDING_MEDIUM, pady=PADDING_MEDIUM)
             text.insert(tk.END, help_text)
             text.config(state=tk.DISABLED)
 
@@ -2046,11 +1907,11 @@ def gui_main() -> None:
 
             if not self.recent_files:
                 ttk.Label(
-                    self.recent_bar, text="Recent: None", font=("TkDefaultFont", 8)
+                    self.recent_bar, text="Recent: None", style="Muted.TLabel"
                 ).pack(side=tk.LEFT)
                 return
 
-            ttk.Label(self.recent_bar, text="Recent:", font=("TkDefaultFont", 8)).pack(
+            ttk.Label(self.recent_bar, text="Recent:", style="Muted.TLabel").pack(
                 side=tk.LEFT, padx=(0, PADDING_SMALL)
             )
             for i, path in enumerate(self.recent_files[:5]):
@@ -2060,7 +1921,7 @@ def gui_main() -> None:
                 btn = ttk.Button(
                     self.recent_bar,
                     text=name,
-                    width=max(8, len(name)),
+                    style="Chip.TButton",
                     command=lambda p=path: self._load_file_to_appropriate_tab(p),
                 )
                 btn.pack(side=tk.LEFT, padx=2)
@@ -2158,9 +2019,20 @@ def gui_main() -> None:
             )
             ttk.Label(
                 appearance,
-                text="Using system theme (Light/Dark mode)",
-                foreground="gray",
+                text="Choose Dark, Light, or follow the system appearance.",
+                style="Muted.TLabel",
             ).pack(anchor=tk.W, padx=PADDING_MEDIUM)
+            theme_var = tk.StringVar(
+                master=settings,
+                value=self.preferences.get("theme", "system").capitalize(),
+            )
+            ttk.Combobox(
+                appearance,
+                textvariable=theme_var,
+                values=("System", "Dark", "Light"),
+                state="readonly",
+                width=14,
+            ).pack(anchor=tk.W, padx=PADDING_MEDIUM, pady=(PADDING_SMALL, 0))
 
             # Save button
             btn_frame = ttk.Frame(settings)
@@ -2171,12 +2043,17 @@ def gui_main() -> None:
             def save_settings():
                 self.preferences["default_compress"] = compress_var.get()
                 self.preferences["default_method"] = method_var.get()
+                self.preferences["theme"] = theme_var.get().lower()
                 self._save_preferences()
-                messagebox.showinfo("Settings", "Settings saved successfully!")
+                self._apply_native_theme()
                 settings.destroy()
 
             ttk.Button(
-                btn_frame, text="Save", command=save_settings, width=BUTTON_WIDTH
+                btn_frame,
+                text="Save",
+                command=save_settings,
+                width=BUTTON_WIDTH,
+                style="Primary.TButton",
             ).pack(side=tk.RIGHT)
             ttk.Button(
                 btn_frame, text="Cancel", command=settings.destroy, width=BUTTON_WIDTH
@@ -2193,10 +2070,10 @@ def gui_main() -> None:
             for tab_id in list(sub_notebook.tabs()):
                 sub_notebook.forget(tab_id)
 
-            image_frame = ttk.Frame(sub_notebook)
-            audio_frame = ttk.Frame(sub_notebook)
-            video_frame = ttk.Frame(sub_notebook)
-            pdf_frame = ttk.Frame(sub_notebook)
+            image_frame = theme.ScrollFrame(sub_notebook)
+            audio_frame = theme.ScrollFrame(sub_notebook)
+            video_frame = theme.ScrollFrame(sub_notebook)
+            pdf_frame = theme.ScrollFrame(sub_notebook)
 
             sub_notebook.add(image_frame, text="Images")
             sub_notebook.add(audio_frame, text="Audio")
@@ -2212,10 +2089,10 @@ def gui_main() -> None:
             }
             self.hide_data_carrier_vars = {}
 
-            self._build_image_tab(image_frame)
-            self._build_audio_tab(audio_frame)
-            self._build_video_tab(video_frame)
-            self._build_pdf_tab(pdf_frame)
+            self._build_image_tab(image_frame.interior)
+            self._build_audio_tab(audio_frame.interior)
+            self._build_video_tab(video_frame.interior)
+            self._build_pdf_tab(pdf_frame.interior)
 
         def _build_reveal_data_tab(self, parent: ttk.Frame) -> None:
             """Main 'Reveal Data' tab for extraction."""
@@ -2228,20 +2105,20 @@ def gui_main() -> None:
             for tab_id in list(sub_notebook.tabs()):
                 sub_notebook.forget(tab_id)
 
-            image_frame = ttk.Frame(sub_notebook)
-            audio_frame = ttk.Frame(sub_notebook)
-            video_frame = ttk.Frame(sub_notebook)
-            pdf_frame = ttk.Frame(sub_notebook)
+            image_frame = theme.ScrollFrame(sub_notebook)
+            audio_frame = theme.ScrollFrame(sub_notebook)
+            video_frame = theme.ScrollFrame(sub_notebook)
+            pdf_frame = theme.ScrollFrame(sub_notebook)
 
             sub_notebook.add(image_frame, text="Images")
             sub_notebook.add(audio_frame, text="Audio")
             sub_notebook.add(video_frame, text="Video")
             sub_notebook.add(pdf_frame, text="PDF")
 
-            self._build_image_decode_only(image_frame)
-            self._build_audio_decode_only(audio_frame)
-            self._build_video_decode_only(video_frame)
-            self._build_pdf_decode_only(pdf_frame)
+            self._build_image_decode_only(image_frame.interior)
+            self._build_audio_decode_only(audio_frame.interior)
+            self._build_video_decode_only(video_frame.interior)
+            self._build_pdf_decode_only(pdf_frame.interior)
 
         def _build_advanced_tab(self, parent: ttk.Frame) -> None:
             """Advanced video-frame embedding features."""
@@ -2254,10 +2131,10 @@ def gui_main() -> None:
             for tab_id in list(sub_notebook.tabs()):
                 sub_notebook.forget(tab_id)
 
-            vf_frame = ttk.Frame(sub_notebook)
+            vf_frame = theme.ScrollFrame(sub_notebook)
             sub_notebook.add(vf_frame, text="Video Frames")
 
-            self._build_video_frames_tab(vf_frame)
+            self._build_video_frames_tab(vf_frame.interior)
 
         def _build_image_tab(self, parent: ttk.Frame) -> None:
             container = ttk.Frame(parent)
@@ -3057,14 +2934,14 @@ def gui_main() -> None:
             for tab_id in list(sub_notebook.tabs()):
                 sub_notebook.forget(tab_id)
 
-            tools_frame = ttk.Frame(sub_notebook)
-            analysis_frame = ttk.Frame(sub_notebook)
+            tools_frame = theme.ScrollFrame(sub_notebook)
+            analysis_frame = theme.ScrollFrame(sub_notebook)
 
             sub_notebook.add(tools_frame, text="Tools")
             sub_notebook.add(analysis_frame, text="Analysis")
 
-            self._build_tools_only(tools_frame)
-            self._build_analyze_tab(analysis_frame)
+            self._build_tools_only(tools_frame.interior)
+            self._build_analyze_tab(analysis_frame.interior)
 
         def _build_tools_only(self, parent: ttk.Frame) -> None:
             """Just the tools without analysis."""
@@ -4778,29 +4655,8 @@ def gui_main() -> None:
             dialog_bg = _dialog_background(
                 ttk.Style(self.root), dark_mode=self._detect_dark_mode()
             )
-            if self._detect_dark_mode():
-                win.configure(bg=dialog_bg)
-                txt = tk.Text(
-                    win,
-                    wrap=tk.WORD,
-                    bg="#1e1f22",
-                    fg="#dcddde",
-                    insertbackground="#dcddde",
-                    borderwidth=0,
-                    padx=8,
-                    pady=8,
-                )
-            else:
-                win.configure(bg=dialog_bg)
-                txt = tk.Text(
-                    win,
-                    wrap=tk.WORD,
-                    bg="white",
-                    fg="black",
-                    insertbackground="black",
-                    padx=8,
-                    pady=8,
-                )
+            win.configure(bg=dialog_bg)
+            txt = tk.Text(win, wrap=tk.WORD, padx=12, pady=12, **theme.text_options())
             txt.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
             txt.insert(tk.END, text)
             txt.config(state=tk.DISABLED)

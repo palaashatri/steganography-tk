@@ -1,8 +1,8 @@
 # GUI Screenshots
 
-Captured on macOS (dark appearance) with `python scripts/capture_screenshots.py`.
-The window uses the brand palette from [`assets/brand`](../../assets/brand): a deep-violet banner with the
-logo and a gold accent rule, native Aqua controls, and a standard macOS menu bar
+Captured on macOS (dark appearance by default; Settings → Appearance offers System, Dark and Light) with `python scripts/capture_screenshots.py`.
+The window uses the brand palette from [`assets/brand`](../../assets/brand): a violet gradient banner with the
+logo and a gold rule, violet/gold themed controls, and a standard macOS menu bar
 (app, File, Edit, View, Window, Help).
 
 ## Menu bar
@@ -28,3 +28,9 @@ logo and a gold accent rule, native Aqua controls, and a standard macOS menu bar
 
 ### History
 ![History](history.png)
+
+## Light appearance
+
+![Hide Data (light)](hide-data-light.png)
+
+![Reveal Data (light)](reveal-data-light.png)
