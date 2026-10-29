@@ -1,0 +1,17 @@
+{
+  "name": "steganography-tk",
+  "accent": "#D2B6FF",
+  "background": "#101720",
+  "foreground": "#F4F7FC",
+  "recommendedPngSizes": [
+    16,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256,
+    512,
+    1024
+  ]
+}
