@@ -1,9 +1,9 @@
-"""Brand theme: palettes derived from the logo and a complete ttk style sheet.
+"""Brand theme: palettes derived from the logo, native OS integration, and brand widgets.
 
-The logo is a violet glass tile with a gold key. The UI language follows it:
-deep violet surfaces, a vivid violet accent for primary actions and focus,
-and a gold highlight for selection and key moments. Both a dark and a light
-palette are provided and either can follow the system appearance.
+The brand identity features a sculpted violet 3D glass tile with a gold key.
+Controls use the platform's native widget set (Aqua on macOS following Apple HIG,
+native Windows/Linux controls) paired with the brand header banner, brand accent
+colors, and dark/light mode support.
 """
 
 from __future__ import annotations
@@ -42,14 +42,14 @@ class Palette:
 
 DARK = Palette(
     name="dark",
-    bg="#171225",
-    raised="#1F1834",
-    field="#241C3F",
-    button="#2E2450",
-    button_hover="#3B2E66",
-    border="#3D3068",
-    text="#F4F7FC",
-    muted="#A99CCB",
+    bg="#2c2c2e" if sys.platform == "darwin" else "#171225",
+    raised="#3a3a3c" if sys.platform == "darwin" else "#1F1834",
+    field="#1c1c1e" if sys.platform == "darwin" else "#241C3F",
+    button="#3a3a3c" if sys.platform == "darwin" else "#2E2450",
+    button_hover="#48484a" if sys.platform == "darwin" else "#3B2E66",
+    border="#545458" if sys.platform == "darwin" else "#3D3068",
+    text="#FFFFFF" if sys.platform == "darwin" else "#F4F7FC",
+    muted="#8e8e93" if sys.platform == "darwin" else "#A99CCB",
     accent="#9D66F0",
     accent_hover="#B38AF6",
     accent_pressed="#7F4FD0",
@@ -63,14 +63,14 @@ DARK = Palette(
 
 LIGHT = Palette(
     name="light",
-    bg="#F7F4FD",
-    raised="#EEE8FA",
+    bg="#f2f2f7" if sys.platform == "darwin" else "#F7F4FD",
+    raised="#e5e5ea" if sys.platform == "darwin" else "#EEE8FA",
     field="#FFFFFF",
-    button="#E6DDF8",
-    button_hover="#D9CCF3",
-    border="#D3C7EE",
-    text="#1B1233",
-    muted="#6B5E8C",
+    button="#e5e5ea" if sys.platform == "darwin" else "#E6DDF8",
+    button_hover="#d1d1d6" if sys.platform == "darwin" else "#D9CCF3",
+    border="#c7c7cc" if sys.platform == "darwin" else "#D3C7EE",
+    text="#000000" if sys.platform == "darwin" else "#1B1233",
+    muted="#8e8e93" if sys.platform == "darwin" else "#6B5E8C",
     accent="#7C45D6",
     accent_hover="#8E5BE6",
     accent_pressed="#6633BD",
@@ -115,298 +115,83 @@ def _configure_fonts(root: tk.Misc) -> None:
 
 
 def apply(root: tk.Misc, mode: str = "dark") -> Palette:
-    """Apply the brand style sheet. ``mode`` is ``"dark"`` or ``"light"``."""
+    """Apply native theme and configure appearance and typography."""
     global CURRENT
     p = DARK if mode == "dark" else LIGHT
     CURRENT = p
 
     _configure_fonts(root)
     style = ttk.Style(root)
-    style.theme_use("clam")
-    base = tkfont.nametofont("TkDefaultFont", root=root)
-    bold = base.copy()
+
+    if sys.platform == "darwin":
+        appearance = "darkaqua" if mode == "dark" else "aqua"
+        try:
+            root.tk.call(
+                "::tk::unsupported::MacWindowStyle",
+                "appearance",
+                root._w,
+                appearance,
+            )
+        except Exception:
+            pass
+        if "aqua" in style.theme_names():
+            style.theme_use("aqua")
+        try:
+            root.configure(bg="systemWindowBackgroundColor")
+        except tk.TclError:
+            pass
+    elif sys.platform == "win32":
+        if mode == "dark":
+            if "alt" in style.theme_names():
+                style.theme_use("alt")
+            elif "clam" in style.theme_names():
+                style.theme_use("clam")
+        else:
+            for name in ("vista", "xpnative", "winnative"):
+                if name in style.theme_names():
+                    style.theme_use(name)
+                    break
+        try:
+            root.configure(bg=p.bg)
+        except tk.TclError:
+            pass
+    else:
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+        try:
+            root.configure(bg=p.bg)
+        except tk.TclError:
+            pass
+
+    # Native buttons:
+    # Use native platform push buttons (Apple HIG Aqua buttons on macOS).
+    # Configure Primary.TButton typography and padding:
+    bold = tkfont.nametofont("TkDefaultFont", root=root).copy()
     bold.configure(weight="bold")
-    big = base.copy()
-    big.configure(size=base.cget("size") + 5, weight="bold")
-
-    try:
-        root.configure(bg=p.bg)
-    except tk.TclError:
-        pass
-
-    style.configure(
-        ".",
-        background=p.bg,
-        foreground=p.text,
-        fieldbackground=p.field,
-        troughcolor=p.field,
-        bordercolor=p.border,
-        lightcolor=p.border,
-        darkcolor=p.border,
-        selectbackground=p.select,
-        selectforeground=p.text,
-        insertcolor=p.text,
-        focuscolor=p.accent,
-        font=base,
-    )
-    style.map(
-        ".",
-        foreground=[("disabled", p.muted)],
-        background=[("disabled", p.bg)],
-    )
-
-    style.configure("TFrame", background=p.bg)
-    style.configure("TLabel", background=p.bg, foreground=p.text)
-    style.configure("Header.TLabel", font=big, foreground=p.text)
+    style.configure("Primary.TButton", font=bold)
+    style.configure("Header.TLabel", font=("TkDefaultFont", 16, "bold"))
     style.configure("Muted.TLabel", foreground=p.muted)
-    style.configure("TSeparator", background=p.border)
-
-    # Buttons ---------------------------------------------------------------
-    style.configure(
-        "TButton",
-        background=p.button,
-        foreground=p.text,
-        bordercolor=p.border,
-        lightcolor=p.button,
-        darkcolor=p.button,
-        borderwidth=1,
-        relief="flat",
-        padding=(14, 7),
-        anchor="center",
-    )
-    style.map(
-        "TButton",
-        background=[("pressed", p.accent_pressed), ("active", p.button_hover)],
-        foreground=[("pressed", p.on_accent), ("disabled", p.muted)],
-        bordercolor=[("focus", p.accent), ("active", p.accent)],
-        lightcolor=[("pressed", p.accent_pressed), ("active", p.button_hover)],
-        darkcolor=[("pressed", p.accent_pressed), ("active", p.button_hover)],
-    )
-    style.configure(
-        "Primary.TButton",
-        background=p.accent,
-        foreground=p.on_accent,
-        bordercolor=p.accent,
-        lightcolor=p.accent,
-        darkcolor=p.accent,
-        font=bold,
-        padding=(18, 8),
-    )
-    style.map(
-        "Primary.TButton",
-        background=[("pressed", p.accent_pressed), ("active", p.accent_hover)],
-        lightcolor=[("pressed", p.accent_pressed), ("active", p.accent_hover)],
-        darkcolor=[("pressed", p.accent_pressed), ("active", p.accent_hover)],
-        bordercolor=[("active", p.gold), ("focus", p.gold)],
-        foreground=[("disabled", p.muted)],
-    )
-    style.configure(
-        "Chip.TButton",
-        padding=(10, 3),
-        background=p.raised,
-        lightcolor=p.raised,
-        darkcolor=p.raised,
-        font=tkfont.nametofont("TkSmallCaptionFont", root=root),
-    )
-
-    # Inputs ----------------------------------------------------------------
-    for name in ("TEntry", "TSpinbox"):
-        style.configure(
-            name,
-            fieldbackground=p.field,
-            foreground=p.text,
-            bordercolor=p.border,
-            lightcolor=p.field,
-            darkcolor=p.field,
-            padding=7,
-            insertcolor=p.text,
-        )
-        style.map(
-            name,
-            bordercolor=[("focus", p.accent), ("hover", p.accent_text)],
-            lightcolor=[("focus", p.accent)],
-            darkcolor=[("focus", p.accent)],
-        )
-    style.configure(
-        "TCombobox",
-        fieldbackground=p.field,
-        background=p.button,
-        foreground=p.text,
-        arrowcolor=p.text,
-        bordercolor=p.border,
-        lightcolor=p.field,
-        darkcolor=p.field,
-        padding=6,
-        selectbackground=p.field,
-        selectforeground=p.text,
-    )
-    style.map(
-        "TCombobox",
-        fieldbackground=[("readonly", p.field)],
-        selectbackground=[("readonly", p.field)],
-        selectforeground=[("readonly", p.text)],
-        bordercolor=[("focus", p.accent)],
-        arrowcolor=[("active", p.accent_text)],
-        background=[("active", p.button_hover)],
-    )
-    root.option_add("*TCombobox*Listbox.background", p.field)
-    root.option_add("*TCombobox*Listbox.foreground", p.text)
-    root.option_add("*TCombobox*Listbox.selectBackground", p.accent)
-    root.option_add("*TCombobox*Listbox.selectForeground", p.on_accent)
-    root.option_add("*TCombobox*Listbox.borderWidth", 0)
-
-    # Toggles ---------------------------------------------------------------
-    for name in ("TCheckbutton", "TRadiobutton"):
-        style.configure(
-            name,
-            background=p.bg,
-            foreground=p.text,
-            indicatorbackground=p.field,
-            indicatorforeground=p.on_accent,
-            indicatorcolor=p.field,
-            bordercolor=p.border,
-            lightcolor=p.field,
-            darkcolor=p.field,
-            padding=3,
-        )
-        style.map(
-            name,
-            background=[("active", p.bg)],
-            indicatorcolor=[
-                ("selected", p.accent),
-                ("!selected", p.field),
-            ],
-            indicatorforeground=[("selected", p.on_accent), ("!selected", p.field)],
-            indicatorbackground=[("selected", p.accent), ("!selected", p.field)],
-            bordercolor=[("selected", p.accent), ("focus", p.accent)],
-            lightcolor=[("selected", p.accent)],
-            darkcolor=[("selected", p.accent)],
-        )
-
-    # Notebook (tabs) -------------------------------------------------------
-    style.configure(
-        "TNotebook",
-        background=p.bg,
-        borderwidth=0,
-        bordercolor=p.border,
-        lightcolor=p.bg,
-        darkcolor=p.bg,
-        tabmargins=(2, 4, 2, 0),
-    )
-    style.configure(
-        "TNotebook.Tab",
-        background=p.raised,
-        foreground=p.muted,
-        padding=(18, 9),
-        borderwidth=1,
-        bordercolor=p.border,
-        lightcolor=p.raised,
-        darkcolor=p.raised,
-        font=base,
-    )
-    style.map(
-        "TNotebook.Tab",
-        background=[("selected", p.bg), ("active", p.button)],
-        foreground=[("selected", p.accent_text), ("active", p.text)],
-        lightcolor=[("selected", p.gold)],
-        bordercolor=[("selected", p.border)],
-    )
-
-    # Cards -----------------------------------------------------------------
-    style.configure(
-        "TLabelframe",
-        background=p.bg,
-        bordercolor=p.border,
-        lightcolor=p.bg,
-        darkcolor=p.border,
-        relief="solid",
-        borderwidth=1,
-        padding=6,
-    )
-    style.configure(
-        "TLabelframe.Label",
-        background=p.bg,
-        foreground=p.accent_text,
-        font=bold,
-    )
-
-    # Progress, scrollbars, tree --------------------------------------------
-    style.configure(
-        "TProgressbar",
-        background=p.accent,
-        troughcolor=p.field,
-        bordercolor=p.border,
-        lightcolor=p.gold,
-        darkcolor=p.accent,
-        thickness=8,
-    )
-    style.configure(
-        "TScrollbar",
-        background=p.button,
-        troughcolor=p.bg,
-        bordercolor=p.bg,
-        lightcolor=p.button,
-        darkcolor=p.button,
-        arrowcolor=p.text,
-        gripcount=0,
-        relief="flat",
-    )
-    style.map("TScrollbar", background=[("active", p.accent)])
-    style.configure(
-        "Treeview",
-        background=p.field,
-        fieldbackground=p.field,
-        foreground=p.text,
-        bordercolor=p.border,
-        lightcolor=p.field,
-        darkcolor=p.field,
-        rowheight=30,
-    )
-    style.map(
-        "Treeview",
-        background=[("selected", p.select)],
-        foreground=[("selected", p.text)],
-    )
-    style.configure(
-        "Treeview.Heading",
-        background=p.raised,
-        foreground=p.accent_text,
-        relief="flat",
-        padding=(8, 7),
-        font=bold,
-        bordercolor=p.border,
-        lightcolor=p.raised,
-        darkcolor=p.raised,
-    )
-    style.map("Treeview.Heading", background=[("active", p.button)])
-    style.configure("TScale", background=p.bg, troughcolor=p.field)
-    style.configure("TPanedwindow", background=p.bg)
-
-    root.option_add("*Listbox.background", p.field)
-    root.option_add("*Listbox.foreground", p.text)
-    root.option_add("*Listbox.selectBackground", p.accent)
-    root.option_add("*Listbox.selectForeground", p.on_accent)
-    root.option_add("*Listbox.relief", "flat")
-    root.option_add("*Listbox.borderWidth", 0)
-    root.option_add("*Listbox.highlightThickness", 1)
-    root.option_add("*Listbox.highlightBackground", p.border)
-    root.option_add("*Listbox.highlightColor", p.accent)
-    root.option_add("*Listbox.activeStyle", "none")
-
-    # Plain tk menus follow the palette on platforms that allow it (not macOS).
-    if sys.platform != "darwin":
-        root.option_add("*Menu.background", p.raised)
-        root.option_add("*Menu.foreground", p.text)
-        root.option_add("*Menu.activeBackground", p.accent)
-        root.option_add("*Menu.activeForeground", p.on_accent)
-        root.option_add("*Menu.borderWidth", 0)
 
     return p
 
 
 def text_options(p: Palette | None = None) -> dict[str, Any]:
-    """Options for classic ``tk.Text`` widgets so they match the theme."""
+    """Options for classic ``tk.Text`` widgets so they match the appearance."""
     p = p or CURRENT
+    if sys.platform == "darwin":
+        return {
+            "bg": "#1e1e1e" if p.name == "dark" else "#ffffff",
+            "fg": "#f0f0f0" if p.name == "dark" else "#000000",
+            "insertbackground": p.accent,
+            "selectbackground": p.select,
+            "selectforeground": "#ffffff" if p.name == "dark" else "#000000",
+            "relief": "flat",
+            "borderwidth": 0,
+            "highlightthickness": 1,
+            "highlightbackground": "#3a3a3c" if p.name == "dark" else "#d1d1d6",
+            "highlightcolor": p.accent,
+            "font": tkfont.nametofont("TkTextFont"),
+        }
     return {
         "bg": p.field,
         "fg": p.text,
@@ -422,29 +207,9 @@ def text_options(p: Palette | None = None) -> dict[str, Any]:
     }
 
 
-PRIMARY_PREFIXES = (
-    "Embed",
-    "Extract",
-    "Run Batch",
-    "Analyze",
-    "Detect",
-    "Generate",
-    "Create",
-    "Calculate",
-)
-
-
 def promote_primary_buttons(widget: tk.Misc) -> None:
-    """Give the main action buttons the accent style."""
-    for child in widget.winfo_children():
-        if isinstance(child, ttk.Button):
-            try:
-                text = str(child.cget("text"))
-                if text.startswith(PRIMARY_PREFIXES):
-                    child.configure(style="Primary.TButton")
-            except tk.TclError:
-                pass
-        promote_primary_buttons(child)
+    """Retained for API compatibility."""
+    pass
 
 
 def recolor_classic_widgets(widget: tk.Misc, p: Palette | None = None) -> None:
@@ -454,17 +219,9 @@ def recolor_classic_widgets(widget: tk.Misc, p: Palette | None = None) -> None:
         try:
             if isinstance(child, tk.Text):
                 child.configure(**text_options(p))
-            elif isinstance(child, tk.Listbox):
-                child.configure(
-                    bg=p.field,
-                    fg=p.text,
-                    selectbackground=p.accent,
-                    selectforeground=p.on_accent,
-                    highlightbackground=p.border,
-                    highlightcolor=p.accent,
-                )
             elif isinstance(child, tk.Toplevel):
-                child.configure(bg=p.bg)
+                bg = "systemWindowBackgroundColor" if sys.platform == "darwin" else p.bg
+                child.configure(bg=bg)
             elif hasattr(child, "placeholder_color"):
                 child.default_color = p.text
                 child.placeholder_color = p.muted
@@ -509,7 +266,7 @@ class BrandBanner(tk.Canvas):
         self._gradient = ImageTk.PhotoImage(strip.resize((width, height)), master=self)
         self.delete("all")
         self.create_image(0, 0, image=self._gradient, anchor="nw")
-        # gold rule along the bottom edge, echoing the key
+        # gold rule along the bottom edge, echoing the key in the logo
         self.create_rectangle(0, height - 3, width, height, fill=p.gold, width=0)
         x = 20
         if self._logo is not None:
@@ -543,8 +300,9 @@ class ScrollFrame(ttk.Frame):
 
     def __init__(self, parent: tk.Misc, **kwargs: Any):
         super().__init__(parent, **kwargs)
+        bg = "systemWindowBackgroundColor" if sys.platform == "darwin" else CURRENT.bg
         self._canvas = tk.Canvas(
-            self, highlightthickness=0, bd=0, bg=CURRENT.bg, takefocus=0
+            self, highlightthickness=0, bd=0, bg=bg, takefocus=0
         )
         self._bar = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
         self._canvas.configure(yscrollcommand=self._bar.set)
@@ -561,7 +319,8 @@ class ScrollFrame(ttk.Frame):
             widget.bind("<Leave>", self._unbind_wheel)
 
     def recolor(self) -> None:
-        self._canvas.configure(bg=CURRENT.bg)
+        bg = "systemWindowBackgroundColor" if sys.platform == "darwin" else CURRENT.bg
+        self._canvas.configure(bg=bg)
 
     def _on_interior(self, _event: Any) -> None:
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))

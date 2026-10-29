@@ -1452,7 +1452,7 @@ def gui_main() -> None:
                         "::tk::unsupported::MacWindowStyle",
                         "appearance",
                         self.root._w,
-                        "darkAqua" if dark_mode else "aqua",
+                        "darkaqua" if dark_mode else "aqua",
                     )
                 except Exception:
                     pass
