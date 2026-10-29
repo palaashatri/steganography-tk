@@ -1,5 +1,10 @@
 # Steganography Tool
 
+<img src="assets/brand/app-icon.svg" alt="Steganography icon" width="96" align="right" />
+
+[Icon, wordmark, and brand assets](assets/brand/README.md)
+
+
 [![Tests](https://github.com/palaashatri/steganography-tk/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/palaashatri/steganography-tk/actions/workflows/ci-cd.yml)
 
 This project provides image and video-frame LSB steganography plus a desktop GUI. The `audio-*`, `video-encode`/`video-decode`, and `pdf-*` commands store payloads in ordinary container metadata; those commands do **not** conceal that data and should not be described as steganography.

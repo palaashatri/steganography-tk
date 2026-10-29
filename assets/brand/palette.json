@@ -1,0 +1,13 @@
+{
+  "name": "Steganography",
+  "category": "Hidden-data tools",
+  "background": [
+    "#41475b",
+    "#222a3e"
+  ],
+  "accent": "#a9b9d2",
+  "highlight": "#e3eaf2",
+  "typography": "Inter, Segoe UI, Arial",
+  "style": "muted-metal / enamel / soft-depth",
+  "license": "original project artwork"
+}
